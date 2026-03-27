@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/e-invoicebe/peppol-cli/internal/output"
 	"github.com/e-invoicebe/peppol-cli/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -26,6 +27,11 @@ func NewRootCmd() *cobra.Command {
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			r := output.NewRenderer(cmd.OutOrStdout(), flags.JSON, flags.Quiet, flags.NoColor)
+			cmd.SetContext(output.WithRenderer(cmd.Context(), r))
+			return nil
+		},
 	}
 
 	cmd.PersistentFlags().BoolVar(&flags.JSON, "json", false, "Output as JSON")
@@ -43,14 +49,17 @@ func NewRootCmd() *cobra.Command {
 func Execute() {
 	cmd := NewRootCmd()
 	if err := cmd.Execute(); err != nil {
-		if !flags.Quiet {
+		code := 1
+		if exitErr, ok := err.(*ExitError); ok {
+			code = exitErr.Code
+		}
+		if flags.JSON {
+			r := output.NewRenderer(os.Stderr, true, flags.Quiet, flags.NoColor)
+			_ = r.JSONError(err, code)
+		} else if !flags.Quiet {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 		}
-		// Use exit code from the error if available.
-		if exitErr, ok := err.(*ExitError); ok {
-			os.Exit(exitErr.Code)
-		}
-		os.Exit(1)
+		os.Exit(code)
 	}
 }
 

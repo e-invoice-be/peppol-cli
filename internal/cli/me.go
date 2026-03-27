@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
 	"github.com/e-invoicebe/peppol-cli/internal/config"
+	"github.com/e-invoicebe/peppol-cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -33,30 +33,29 @@ func runMe(cmd *cobra.Command, args []string) error {
 		return &ExitError{Err: err, Code: 1}
 	}
 
-	if flags.JSON {
-		enc := json.NewEncoder(cmd.OutOrStdout())
-		enc.SetIndent("", "  ")
-		return enc.Encode(tenant)
+	r := output.FromContext(cmd.Context())
+
+	if r.IsJSON() {
+		return r.JSON(tenant)
 	}
 
-	w := cmd.OutOrStdout()
-	fmt.Fprintf(w, "Name:           %s\n", tenant.Name)
+	pairs := []output.KVPair{
+		{Key: "Name", Value: tenant.Name},
+	}
 	if tenant.CompanyName != nil {
-		fmt.Fprintf(w, "Company:        %s\n", *tenant.CompanyName)
+		pairs = append(pairs, output.KVPair{Key: "Company", Value: *tenant.CompanyName})
 	}
 	if tenant.CompanyNumber != nil {
-		fmt.Fprintf(w, "Company Number: %s\n", *tenant.CompanyNumber)
+		pairs = append(pairs, output.KVPair{Key: "Company Number", Value: *tenant.CompanyNumber})
 	}
 	if tenant.CompanyTaxID != nil {
-		fmt.Fprintf(w, "Tax ID:         %s\n", *tenant.CompanyTaxID)
+		pairs = append(pairs, output.KVPair{Key: "Tax ID", Value: *tenant.CompanyTaxID})
 	}
-	fmt.Fprintf(w, "Plan:           %s\n", tenant.Plan)
-	if len(tenant.PeppolIDs) > 0 {
-		for _, id := range tenant.PeppolIDs {
-			fmt.Fprintf(w, "Peppol ID:      %s\n", id)
-		}
+	pairs = append(pairs, output.KVPair{Key: "Plan", Value: tenant.Plan})
+	for _, id := range tenant.PeppolIDs {
+		pairs = append(pairs, output.KVPair{Key: "Peppol ID", Value: id})
 	}
-	return nil
+	return r.KeyValue(pairs)
 }
 
 // resolveKey gets the API key or returns an auth exit error.
