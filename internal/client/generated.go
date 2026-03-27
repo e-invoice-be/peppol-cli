@@ -213,3 +213,124 @@ type PaginatedDocuments struct {
 	Pages       int                `json:"pages"`
 	HasNextPage bool               `json:"has_next_page"`
 }
+
+// --- Peppol Lookup Types (GET /api/lookup) ---
+
+// QueryMetadata contains metadata about the Peppol ID lookup query.
+type QueryMetadata struct {
+	IdentifierScheme string `json:"identifierScheme"`
+	IdentifierValue  string `json:"identifierValue"`
+	SMLDomain        string `json:"smlDomain"`
+	Timestamp        string `json:"timestamp"`
+	Version          string `json:"version"`
+}
+
+// DnsInfo contains information about the DNS lookup performed.
+type DnsInfo struct {
+	Status       string          `json:"status"`
+	SMPHostname  *string         `json:"smpHostname,omitempty"`
+	SMLHostname  string          `json:"smlHostname"`
+	DnsRecords   json.RawMessage `json:"dnsRecords,omitempty"`
+	Error        *string         `json:"error,omitempty"`
+	LookupMethod *string         `json:"lookupMethod,omitempty"`
+}
+
+// LookupServiceMetadata contains service metadata for a Peppol participant.
+type LookupServiceMetadata struct {
+	Status      string          `json:"status"`
+	QueryTimeMS float64         `json:"queryTimeMs"`
+	Endpoints   json.RawMessage `json:"endpoints,omitempty"`
+	Error       *string         `json:"error,omitempty"`
+}
+
+// BusinessEntity represents a business entity in the Peppol network.
+type BusinessEntity struct {
+	Name                  *string            `json:"name,omitempty"`
+	CountryCode           *string            `json:"countryCode,omitempty"`
+	Identifiers           []PeppolIdentifier `json:"identifiers,omitempty"`
+	AdditionalInformation []string           `json:"additionalInformation,omitempty"`
+}
+
+// LookupBusinessCard contains business card information for a Peppol participant.
+type LookupBusinessCard struct {
+	Status      string           `json:"status"`
+	Entities    []BusinessEntity `json:"entities,omitempty"`
+	QueryTimeMS float64          `json:"queryTimeMs"`
+	Error       *string          `json:"error,omitempty"`
+}
+
+// LookupCertificate contains certificate information for a Peppol endpoint.
+type LookupCertificate struct {
+	Status  string         `json:"status"`
+	Details map[string]any `json:"details,omitempty"`
+	Error   *string        `json:"error,omitempty"`
+}
+
+// PeppolIdLookupResponse represents the response from GET /api/lookup.
+type PeppolIdLookupResponse struct {
+	QueryMetadata   *QueryMetadata          `json:"queryMetadata,omitempty"`
+	Status          string                  `json:"status"`
+	Errors          []string                `json:"errors,omitempty"`
+	DnsInfo         *DnsInfo                `json:"dnsInfo,omitempty"`
+	ServiceMetadata *LookupServiceMetadata  `json:"serviceMetadata,omitempty"`
+	BusinessCard    *LookupBusinessCard     `json:"businessCard,omitempty"`
+	Certificates    []LookupCertificate     `json:"certificates,omitempty"`
+	ExecutionTimeMS float64                 `json:"executionTimeMs"`
+}
+
+// --- Peppol Search Types (GET /api/lookup/participants) ---
+
+// PeppolIdentifier represents a business identifier.
+type PeppolIdentifier struct {
+	Scheme string `json:"scheme"`
+	Value  string `json:"value"`
+}
+
+// PeppolDocumentType represents a supported document type.
+type PeppolDocumentType struct {
+	Scheme string `json:"scheme"`
+	Value  string `json:"value"`
+}
+
+// PeppolEntity represents a business entity in search results.
+type PeppolEntity struct {
+	Name             *string            `json:"name,omitempty"`
+	CountryCode      *string            `json:"country_code,omitempty"`
+	RegistrationDate *string            `json:"registration_date,omitempty"`
+	Identifiers      []PeppolIdentifier `json:"identifiers,omitempty"`
+}
+
+// PeppolParticipant represents a Peppol participant in search results.
+type PeppolParticipant struct {
+	PeppolID      string               `json:"peppol_id"`
+	PeppolScheme  string               `json:"peppol_scheme"`
+	Entities      []PeppolEntity       `json:"entities,omitempty"`
+	DocumentTypes []PeppolDocumentType `json:"document_types,omitempty"`
+}
+
+// PeppolSearchResult represents the response from GET /api/lookup/participants.
+type PeppolSearchResult struct {
+	TotalCount   int                 `json:"total_count"`
+	UsedCount    int                 `json:"used_count"`
+	Participants []PeppolParticipant `json:"participants,omitempty"`
+	QueryTerms   string              `json:"query_terms"`
+	SearchDate   string              `json:"search_date"`
+}
+
+// --- Peppol Validation Types (GET /api/validate/peppol-id) ---
+
+// ValidationBusinessCard contains simplified business card info for validation.
+type ValidationBusinessCard struct {
+	Name             *string `json:"name,omitempty"`
+	CountryCode      *string `json:"country_code,omitempty"`
+	RegistrationDate *string `json:"registration_date,omitempty"`
+}
+
+// PeppolIdValidationResponse represents the response from GET /api/validate/peppol-id.
+type PeppolIdValidationResponse struct {
+	IsValid                bool                     `json:"is_valid"`
+	DNSValid               bool                     `json:"dns_valid"`
+	BusinessCardValid      bool                     `json:"business_card_valid"`
+	SupportedDocumentTypes []string                 `json:"supported_document_types,omitempty"`
+	BusinessCard           *ValidationBusinessCard  `json:"business_card"`
+}

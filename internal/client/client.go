@@ -351,6 +351,132 @@ func (c *Client) ListDrafts(params DocumentListParams) (*PaginatedDocuments, err
 	return c.listDocuments("/api/drafts/", params)
 }
 
+// LookupPeppolID calls GET /api/lookup and returns Peppol participant information.
+func (c *Client) LookupPeppolID(peppolID string) (*PeppolIdLookupResponse, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/lookup", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	q := req.URL.Query()
+	q.Set("peppol_id", peppolID)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result PeppolIdLookupResponse
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// SearchPeppolParticipants calls GET /api/lookup/participants and returns matching participants.
+func (c *Client) SearchPeppolParticipants(query, countryCode string) (*PeppolSearchResult, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/lookup/participants", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	q := req.URL.Query()
+	q.Set("query", query)
+	if countryCode != "" {
+		q.Set("country_code", countryCode)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result PeppolSearchResult
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// ValidatePeppolID calls GET /api/validate/peppol-id and returns validation results.
+func (c *Client) ValidatePeppolID(peppolID string) (*PeppolIdValidationResponse, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/validate/peppol-id", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	q := req.URL.Query()
+	q.Set("peppol_id", peppolID)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result PeppolIdValidationResponse
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
 // MaskKey returns a masked version of an API key for display.
 func MaskKey(key string) string {
 	if len(key) <= 4 {
