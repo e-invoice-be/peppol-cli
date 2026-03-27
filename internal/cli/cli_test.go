@@ -10,6 +10,7 @@ import (
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
 	"github.com/e-invoicebe/peppol-cli/internal/config"
+	"github.com/e-invoicebe/peppol-cli/internal/output"
 )
 
 // newTestServer returns an httptest.Server that handles GET /api/me/.
@@ -344,6 +345,264 @@ func TestRootCmd_HelpIncludesNewCommands(t *testing.T) {
 	for _, want := range []string{"stats", "completion"} {
 		if !strings.Contains(output, want) {
 			t.Errorf("help output missing %q", want)
+		}
+	}
+}
+
+func newDocumentTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer valid-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(client.ErrorResponse{Detail: "Invalid API key"})
+			return
+		}
+
+		switch r.URL.Path {
+		case "/api/documents/doc-123":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{
+				"id": "doc-123",
+				"created_at": "2026-01-15T10:30:00Z",
+				"document_type": "INVOICE",
+				"state": "SENT",
+				"direction": "OUTBOUND",
+				"customer_name": "Acme Corp",
+				"customer_tax_id": "BE0123456789",
+				"vendor_name": "My Company",
+				"invoice_id": "INV-001",
+				"invoice_date": "2026-01-15",
+				"due_date": "2026-02-15",
+				"currency": "EUR",
+				"subtotal": "1000.00",
+				"total_tax": "210.00",
+				"invoice_total": "1210.00",
+				"amount_due": "1210.00",
+				"payment_term": "30 days",
+				"payment_details": [{"iban": "BE71096123456769"}],
+				"items": [
+					{"description": "Consulting services", "quantity": "10", "unit_price": "100.00", "amount": "1000.00"},
+					{"description": "Travel expenses", "quantity": "1", "unit_price": "210.00", "amount": "210.00"}
+				]
+			}`))
+		case "/api/documents/doc-123/timeline":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{
+				"document_id": "doc-123",
+				"events": [
+					{"event_type": "document_created", "timestamp": "2026-01-15T10:30:00Z"},
+					{"event_type": "send_success", "timestamp": "2026-01-15T10:31:00Z"}
+				]
+			}`))
+		case "/api/documents/nonexistent":
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(client.ErrorResponse{Detail: "not found"})
+		case "/api/documents/nonexistent/timeline":
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(client.ErrorResponse{Detail: "not found"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+func TestDocumentGetCmd_TextOutput(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	doc, err := c.GetDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, doc, false); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"doc-123", "INVOICE", "SENT", "OUTBOUND", "INV-001", "2026-01-15", "2026-02-15", "Acme Corp", "BE0123456789", "My Company", "1000.00", "210.00", "1210.00", "30 days", "BE71096123456769"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentGetCmd_TextOutput_NoLineItems(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	doc, err := c.GetDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, doc, false); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	if strings.Contains(out, "Consulting services") {
+		t.Error("line items should not appear without --full flag")
+	}
+}
+
+func TestDocumentGetCmd_FullOutput(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	doc, err := c.GetDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, doc, true); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"Consulting services", "Travel expenses", "100.00", "210.00"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("full output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentGetCmd_JSONOutput(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	doc, err := c.GetDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("JSON marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("JSON unmarshal error: %v", err)
+	}
+	if parsed["id"] != "doc-123" {
+		t.Errorf("expected id 'doc-123', got %v", parsed["id"])
+	}
+	if parsed["document_type"] != "INVOICE" {
+		t.Errorf("expected document_type 'INVOICE', got %v", parsed["document_type"])
+	}
+}
+
+func TestDocumentGetCmd_NotFound(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	_, err := c.GetDocument("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent document")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got %v", err)
+	}
+}
+
+func TestDocumentTimelineCmd_TextOutput(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	timeline, err := c.GetDocumentTimeline("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderTimeline(r, timeline); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"2026-01-15 10:30:00", "Document Created", "2026-01-15 10:31:00", "Send Success"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentGetCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "get", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "document-id") {
+		t.Errorf("help output missing 'document-id', got:\n%s", out)
+	}
+}
+
+func TestDocumentTimelineCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "timeline", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "document-id") {
+		t.Errorf("help output missing 'document-id', got:\n%s", out)
+	}
+}
+
+func TestRootCmd_HelpIncludesDocument(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "document") {
+		t.Error("help output missing 'document' command")
+	}
+}
+
+func TestFormatEventType(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"document_created", "Document Created"},
+		{"send_success", "Send Success"},
+		{"email_received", "Email Received"},
+		{"mlr_received", "Mlr Received"},
+	}
+	for _, tt := range tests {
+		got := formatEventType(tt.input)
+		if got != tt.want {
+			t.Errorf("formatEventType(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

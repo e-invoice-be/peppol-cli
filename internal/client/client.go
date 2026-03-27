@@ -155,6 +155,84 @@ func (c *Client) GetStats(startDate, endDate, aggregation string) (*StatsRespons
 	}
 }
 
+// GetDocument calls GET /api/documents/{document_id} and returns the document details.
+func (c *Client) GetDocument(documentID string) (*DocumentResponse, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var doc DocumentResponse
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &doc, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// GetDocumentTimeline calls GET /api/documents/{document_id}/timeline and returns the timeline.
+func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/timeline", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var timeline DocumentTimeline
+		if err := json.Unmarshal(body, &timeline); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &timeline, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
 // MaskKey returns a masked version of an API key for display.
 func MaskKey(key string) string {
 	if len(key) <= 4 {

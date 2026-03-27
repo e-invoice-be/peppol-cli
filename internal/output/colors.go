@@ -33,9 +33,9 @@ func initStyles() {
 func StatusBadge(status string) string {
 	upper := strings.ToUpper(status)
 	switch upper {
-	case "SENT", "DELIVERED", "ACTIVE":
+	case "SENT", "DELIVERED", "ACTIVE", "RECEIVED":
 		return SuccessStyle.Render(upper)
-	case "DRAFT", "PENDING":
+	case "DRAFT", "PENDING", "TRANSIT":
 		return WarningStyle.Render(upper)
 	case "FAILED", "ERROR", "REJECTED":
 		return ErrorStyle.Render(upper)

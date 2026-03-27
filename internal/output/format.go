@@ -49,6 +49,9 @@ func NewTestRenderer(w io.Writer, jsonMode, quiet, noColor, isTTY bool) *Rendere
 	}
 }
 
+// Writer returns the underlying writer.
+func (r *Renderer) Writer() io.Writer { return r.w }
+
 // IsJSON reports whether JSON output mode is active.
 func (r *Renderer) IsJSON() bool { return r.isJSON }
 
