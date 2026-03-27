@@ -348,3 +348,47 @@ type PeppolIdValidationResponse struct {
 	SupportedDocumentTypes []string                 `json:"supported_document_types,omitempty"`
 	BusinessCard           *ValidationBusinessCard  `json:"business_card"`
 }
+
+// IssueType represents the type of validation issue.
+type IssueType string
+
+const (
+	IssueTypeWarning IssueType = "warning"
+	IssueTypeError   IssueType = "error"
+)
+
+// ValidationIssue represents a single validation issue.
+type ValidationIssue struct {
+	Message    string    `json:"message"`
+	Type       IssueType `json:"type"`
+	Location   *string   `json:"location,omitempty"`
+	RuleID     *string   `json:"rule_id,omitempty"`
+	Flag       *string   `json:"flag,omitempty"`
+	Test       *string   `json:"test,omitempty"`
+	Schematron string    `json:"schematron"`
+}
+
+// ValidationResponse represents the response from POST /api/documents/{id}/validate.
+type ValidationResponse struct {
+	ID          string            `json:"id"`
+	FileName    *string           `json:"file_name"`
+	IsValid     bool              `json:"is_valid"`
+	Issues      []ValidationIssue `json:"issues"`
+	UBLDocument *string           `json:"ubl_document,omitempty"`
+}
+
+// DocumentCreateFromPdfResponse represents the response from POST /api/documents/pdf.
+type DocumentCreateFromPdfResponse struct {
+	DocumentResponse
+	Success     bool    `json:"success"`
+	UBLDocument *string `json:"ubl_document,omitempty"`
+}
+
+// SendDocumentOptions holds optional query parameters for the send endpoint.
+type SendDocumentOptions struct {
+	SenderPeppolScheme   string
+	SenderPeppolID       string
+	ReceiverPeppolScheme string
+	ReceiverPeppolID     string
+	Email                string
+}

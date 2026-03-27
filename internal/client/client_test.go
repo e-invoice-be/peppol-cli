@@ -3,11 +3,13 @@ package client
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -912,5 +914,211 @@ func TestDeleteAttachment_Success(t *testing.T) {
 	}
 	if !result.IsDeleted {
 		t.Error("expected is_deleted to be true")
+	}
+}
+
+// --- Document create/send/validate tests (from PRD-217) ---
+
+func TestCreateDocumentJSON_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/documents/" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("expected application/json content-type, got %s", ct)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), "INVOICE") {
+			t.Errorf("expected body to contain INVOICE, got %s", string(body))
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(DocumentResponse{ID: "doc-new", DocumentType: DocumentTypeInvoice})
+	}))
+	defer srv.Close()
+
+	tmpFile := filepath.Join(t.TempDir(), "invoice.json")
+	os.WriteFile(tmpFile, []byte(`{"document_type":"INVOICE","items":[{"description":"Test"}]}`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	doc, err := c.CreateDocumentJSON(tmpFile, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if doc.ID != "doc-new" {
+		t.Errorf("expected doc ID 'doc-new', got %q", doc.ID)
+	}
+}
+
+func TestCreateDocumentJSON_ConstructPDF(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("construct_pdf") != "true" {
+			t.Errorf("expected construct_pdf=true query param")
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(DocumentResponse{ID: "doc-pdf"})
+	}))
+	defer srv.Close()
+
+	tmpFile := filepath.Join(t.TempDir(), "invoice.json")
+	os.WriteFile(tmpFile, []byte(`{}`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	doc, err := c.CreateDocumentJSON(tmpFile, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if doc.ID != "doc-pdf" {
+		t.Errorf("expected doc ID 'doc-pdf', got %q", doc.ID)
+	}
+}
+
+func TestCreateDocumentJSON_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	tmpFile := filepath.Join(t.TempDir(), "invoice.json")
+	os.WriteFile(tmpFile, []byte(`{}`), 0644)
+
+	c := NewClient("bad-key", WithBaseURL(srv.URL))
+	_, err := c.CreateDocumentJSON(tmpFile, false)
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
+func TestCreateDocumentFromUBL_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/documents/ubl" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			t.Errorf("expected multipart content-type, got %s", r.Header.Get("Content-Type"))
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(DocumentResponse{ID: "doc-ubl"})
+	}))
+	defer srv.Close()
+
+	tmpFile := filepath.Join(t.TempDir(), "invoice.xml")
+	os.WriteFile(tmpFile, []byte(`<Invoice></Invoice>`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	doc, err := c.CreateDocumentFromUBL(tmpFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if doc.ID != "doc-ubl" {
+		t.Errorf("expected doc ID 'doc-ubl', got %q", doc.ID)
+	}
+}
+
+func TestCreateDocumentFromPDF_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("vendor_tax_id") != "BE123" {
+			t.Errorf("expected vendor_tax_id=BE123")
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(DocumentCreateFromPdfResponse{
+			DocumentResponse: DocumentResponse{ID: "doc-pdf"},
+			Success:          true,
+		})
+	}))
+	defer srv.Close()
+
+	tmpFile := filepath.Join(t.TempDir(), "invoice.pdf")
+	os.WriteFile(tmpFile, []byte(`%PDF-fake`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	doc, err := c.CreateDocumentFromPDF(tmpFile, "BE123", "BE456")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !doc.Success {
+		t.Error("expected success=true")
+	}
+}
+
+func TestSendDocument_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/documents/doc-123/send" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("sender_peppol_id") != "0088:sender" {
+			t.Errorf("expected sender_peppol_id=0088:sender")
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(DocumentResponse{ID: "doc-123", State: DocumentStateSent})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	doc, err := c.SendDocument("doc-123", SendDocumentOptions{SenderPeppolID: "0088:sender"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if doc.State != DocumentStateSent {
+		t.Errorf("expected state SENT, got %q", doc.State)
+	}
+}
+
+func TestSendDocument_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.SendDocument("nonexistent", SendDocumentOptions{})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestValidateDocument_Valid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/documents/doc-123/validate" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ValidationResponse{ID: "doc-123", IsValid: true, Issues: []ValidationIssue{}})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	val, err := c.ValidateDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !val.IsValid {
+		t.Error("expected is_valid=true")
+	}
+}
+
+func TestValidateDocument_Invalid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ValidationResponse{
+			ID: "doc-123", IsValid: false,
+			Issues: []ValidationIssue{{Message: "Missing buyer name", Type: IssueTypeError, Schematron: "BR-07"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	val, err := c.ValidateDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if val.IsValid {
+		t.Error("expected is_valid=false")
+	}
+	if val.Issues[0].Schematron != "BR-07" {
+		t.Errorf("expected schematron 'BR-07', got %q", val.Issues[0].Schematron)
 	}
 }

@@ -1683,3 +1683,84 @@ func TestFormatFileSize(t *testing.T) {
 		}
 	}
 }
+
+// --- Document Create/Send/Validate CLI tests (PRD-217) ---
+
+func TestDocumentCreateCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "create", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"json", "ubl", "pdf"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("create help missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentSendCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "send", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"sender-peppol-id", "receiver-peppol-id", "email"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("send help missing '--%s'\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentValidateCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "validate", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Peppol BIS") {
+		t.Errorf("validate help missing Peppol BIS description\nGot:\n%s", out)
+	}
+}
+
+func TestRenderValidation_Valid(t *testing.T) {
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	val := &client.ValidationResponse{ID: "doc-123", IsValid: true, Issues: []client.ValidationIssue{}}
+	if err := renderValidation(r, val); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "valid") {
+		t.Errorf("expected 'valid' in output\nGot:\n%s", buf.String())
+	}
+}
+
+func TestRenderValidation_Invalid(t *testing.T) {
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	ruleID := "BR-07"
+	val := &client.ValidationResponse{
+		ID: "doc-123", IsValid: false,
+		Issues: []client.ValidationIssue{
+			{Message: "Missing buyer name", Type: client.IssueTypeError, RuleID: &ruleID, Schematron: "BR-07"},
+		},
+	}
+	if err := renderValidation(r, val); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"not valid", "Missing buyer name", "BR-07"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}

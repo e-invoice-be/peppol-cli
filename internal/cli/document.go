@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
@@ -20,6 +21,9 @@ func newDocumentCmd() *cobra.Command {
 	cmd.AddCommand(newDocumentGetCmd())
 	cmd.AddCommand(newDocumentTimelineCmd())
 	cmd.AddCommand(newAttachmentCmd())
+	cmd.AddCommand(newDocumentCreateCmd())
+	cmd.AddCommand(newDocumentSendCmd())
+	cmd.AddCommand(newDocumentValidateCmd())
 
 	return cmd
 }
@@ -246,4 +250,250 @@ func formatEventType(s string) string {
 		words[i] = strings.ToUpper(w[:1]) + w[1:]
 	}
 	return strings.Join(words, " ")
+}
+
+// --- Create commands ---
+
+func newDocumentCreateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new document",
+	}
+	cmd.AddCommand(newDocumentCreateJSONCmd())
+	cmd.AddCommand(newDocumentCreateUBLCmd())
+	cmd.AddCommand(newDocumentCreatePDFCmd())
+	return cmd
+}
+
+func newDocumentCreateJSONCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "json <file>",
+		Short: "Create a document from a JSON file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDocumentCreateJSON,
+	}
+	cmd.Flags().Bool("construct-pdf", false, "Generate a PDF from the document")
+	return cmd
+}
+
+func runDocumentCreateJSON(cmd *cobra.Command, args []string) error {
+	filePath := args[0]
+	if _, err := os.Stat(filePath); err != nil {
+		return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
+	}
+
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	constructPDF, _ := cmd.Flags().GetBool("construct-pdf")
+	c := client.NewClient(apiKey)
+	doc, err := c.CreateDocumentJSON(filePath, constructPDF)
+	if err != nil {
+		return handleDocumentError(err)
+	}
+
+	r := output.FromContext(cmd.Context())
+	if r.IsJSON() {
+		return r.JSON(doc)
+	}
+
+	r.Success("Document created successfully.")
+	fmt.Fprintln(r.Writer())
+	return renderDocumentSections(r, doc, false)
+}
+
+func newDocumentCreateUBLCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ubl <file>",
+		Short: "Create a document from a UBL/XML file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDocumentCreateUBL,
+	}
+}
+
+func runDocumentCreateUBL(cmd *cobra.Command, args []string) error {
+	filePath := args[0]
+	if _, err := os.Stat(filePath); err != nil {
+		return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
+	}
+
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	c := client.NewClient(apiKey)
+	doc, err := c.CreateDocumentFromUBL(filePath)
+	if err != nil {
+		return handleDocumentError(err)
+	}
+
+	r := output.FromContext(cmd.Context())
+	if r.IsJSON() {
+		return r.JSON(doc)
+	}
+
+	r.Success("Document created from UBL successfully.")
+	fmt.Fprintln(r.Writer())
+	return renderDocumentSections(r, doc, false)
+}
+
+func newDocumentCreatePDFCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pdf <file>",
+		Short: "Create a document from a PDF file",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDocumentCreatePDF,
+	}
+	cmd.Flags().String("vendor-tax-id", "", "Vendor tax ID (e.g. BE1018265814)")
+	cmd.Flags().String("customer-tax-id", "", "Customer tax ID (e.g. BE1018265814)")
+	return cmd
+}
+
+func runDocumentCreatePDF(cmd *cobra.Command, args []string) error {
+	filePath := args[0]
+	if _, err := os.Stat(filePath); err != nil {
+		return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
+	}
+
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	vendorTaxID, _ := cmd.Flags().GetString("vendor-tax-id")
+	customerTaxID, _ := cmd.Flags().GetString("customer-tax-id")
+
+	c := client.NewClient(apiKey)
+	doc, err := c.CreateDocumentFromPDF(filePath, vendorTaxID, customerTaxID)
+	if err != nil {
+		return handleDocumentError(err)
+	}
+
+	r := output.FromContext(cmd.Context())
+	if r.IsJSON() {
+		return r.JSON(doc)
+	}
+
+	if doc.Success {
+		r.Success("Document created from PDF successfully.")
+	} else {
+		r.Error("Document created but may require manual review.")
+	}
+	fmt.Fprintln(r.Writer())
+	return renderDocumentSections(r, &doc.DocumentResponse, false)
+}
+
+// --- Send command ---
+
+func newDocumentSendCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "send <document-id>",
+		Short: "Send a document via Peppol",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDocumentSend,
+	}
+	cmd.Flags().String("sender-peppol-id", "", "Override sender Peppol ID")
+	cmd.Flags().String("sender-peppol-scheme", "", "Override sender Peppol scheme")
+	cmd.Flags().String("receiver-peppol-id", "", "Override receiver Peppol ID")
+	cmd.Flags().String("receiver-peppol-scheme", "", "Override receiver Peppol scheme")
+	cmd.Flags().String("email", "", "Send notification email")
+	return cmd
+}
+
+func runDocumentSend(cmd *cobra.Command, args []string) error {
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	opts := client.SendDocumentOptions{}
+	opts.SenderPeppolID, _ = cmd.Flags().GetString("sender-peppol-id")
+	opts.SenderPeppolScheme, _ = cmd.Flags().GetString("sender-peppol-scheme")
+	opts.ReceiverPeppolID, _ = cmd.Flags().GetString("receiver-peppol-id")
+	opts.ReceiverPeppolScheme, _ = cmd.Flags().GetString("receiver-peppol-scheme")
+	opts.Email, _ = cmd.Flags().GetString("email")
+
+	c := client.NewClient(apiKey)
+	doc, err := c.SendDocument(args[0], opts)
+	if err != nil {
+		if errors.Is(err, client.ErrNotFound) {
+			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+		}
+		return handleDocumentError(err)
+	}
+
+	r := output.FromContext(cmd.Context())
+	if r.IsJSON() {
+		return r.JSON(doc)
+	}
+
+	r.Success("Document sent successfully.")
+	fmt.Fprintln(r.Writer())
+	return renderDocumentSections(r, doc, false)
+}
+
+// --- Validate command ---
+
+func newDocumentValidateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate <document-id>",
+		Short: "Validate a document against Peppol BIS Billing 3.0",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDocumentValidate,
+	}
+}
+
+func runDocumentValidate(cmd *cobra.Command, args []string) error {
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	c := client.NewClient(apiKey)
+	val, err := c.ValidateDocument(args[0])
+	if err != nil {
+		if errors.Is(err, client.ErrNotFound) {
+			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+		}
+		return handleDocumentError(err)
+	}
+
+	r := output.FromContext(cmd.Context())
+	if r.IsJSON() {
+		return r.JSON(val)
+	}
+
+	return renderValidation(r, val)
+}
+
+func renderValidation(r *output.Renderer, val *client.ValidationResponse) error {
+	if val.IsValid {
+		r.Success("Document is valid.")
+	} else {
+		r.Error("Document is not valid.")
+	}
+
+	if len(val.Issues) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(r.Writer())
+	headers := []string{"Type", "Message", "Rule"}
+	var rows [][]string
+	for _, issue := range val.Issues {
+		rule := deref(issue.RuleID, "-")
+		rows = append(rows, []string{string(issue.Type), issue.Message, rule})
+	}
+	return r.Table(headers, rows)
+}
+
+// handleDocumentError converts client errors to ExitErrors.
+func handleDocumentError(err error) error {
+	if errors.Is(err, client.ErrUnauthorized) {
+		return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+	}
+	return &ExitError{Err: err, Code: 1}
 }
