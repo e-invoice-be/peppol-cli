@@ -30,3 +30,39 @@ type TenantPublic struct {
 type ErrorResponse struct {
 	Detail string `json:"detail"`
 }
+
+// StatsAggregationType represents the aggregation period for stats.
+type StatsAggregationType string
+
+const (
+	StatsAggregationDay   StatsAggregationType = "DAY"
+	StatsAggregationWeek  StatsAggregationType = "WEEK"
+	StatsAggregationMonth StatsAggregationType = "MONTH"
+)
+
+// ActionType represents the type of document action.
+type ActionType string
+
+const (
+	ActionDocumentSent     ActionType = "DOCUMENT_SENT"
+	ActionDocumentReceived ActionType = "DOCUMENT_RECEIVED"
+)
+
+// ActionStats represents a single action statistic entry.
+type ActionStats struct {
+	Action   ActionType `json:"action"`
+	StatDate string     `json:"stat_date"`
+	Count    int        `json:"count"`
+}
+
+// StatsResponse represents the response from GET /api/stats.
+type StatsResponse struct {
+	TenantID             string               `json:"tenant_id"`
+	PeriodStart          string               `json:"period_start"`
+	PeriodEnd            string               `json:"period_end"`
+	Aggregation          StatsAggregationType  `json:"aggregation"`
+	Actions              []ActionStats         `json:"actions"`
+	TotalDays            int                   `json:"total_days"`
+	AverageDailyUsage    float64              `json:"average_daily_usage"`
+	BudgetEstimationDays *float64             `json:"budget_estimation_days,omitempty"`
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -85,6 +86,92 @@ func TestAuthTransport_InjectsBearer(t *testing.T) {
 	c.GetMe()
 	if gotHeader != "Bearer my-secret-key" {
 		t.Errorf("expected 'Bearer my-secret-key', got %q", gotHeader)
+	}
+}
+
+func TestGetStats_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/stats" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Errorf("unexpected auth header: %s", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(StatsResponse{
+			TenantID:          "t-123",
+			PeriodStart:       "2026-01-01",
+			PeriodEnd:         "2026-03-27",
+			Aggregation:       StatsAggregationDay,
+			TotalDays:         86,
+			AverageDailyUsage: 3.5,
+			Actions: []ActionStats{
+				{Action: ActionDocumentSent, StatDate: "2026-01-01", Count: 5},
+				{Action: ActionDocumentReceived, StatDate: "2026-01-01", Count: 3},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	stats, err := c.GetStats("", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.TenantID != "t-123" {
+		t.Errorf("expected tenant_id 't-123', got %q", stats.TenantID)
+	}
+	if stats.TotalDays != 86 {
+		t.Errorf("expected total_days 86, got %d", stats.TotalDays)
+	}
+	if len(stats.Actions) != 2 {
+		t.Errorf("expected 2 actions, got %d", len(stats.Actions))
+	}
+}
+
+func TestGetStats_WithFilters(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(StatsResponse{
+			TenantID:    "t-123",
+			PeriodStart: "2026-01-01",
+			PeriodEnd:   "2026-03-01",
+			Aggregation: StatsAggregationMonth,
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.GetStats("2026-01-01", "2026-03-01", "MONTH")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	q, _ := url.ParseQuery(gotQuery)
+	if q.Get("start_date") != "2026-01-01" {
+		t.Errorf("expected start_date '2026-01-01', got %q", q.Get("start_date"))
+	}
+	if q.Get("end_date") != "2026-03-01" {
+		t.Errorf("expected end_date '2026-03-01', got %q", q.Get("end_date"))
+	}
+	if q.Get("aggregation") != "MONTH" {
+		t.Errorf("expected aggregation 'MONTH', got %q", q.Get("aggregation"))
+	}
+}
+
+func TestGetStats_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Invalid API key"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("bad-key", WithBaseURL(srv.URL))
+	_, err := c.GetStats("", "", "")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized, got %v", err)
 	}
 }
 
