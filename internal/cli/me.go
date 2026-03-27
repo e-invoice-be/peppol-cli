@@ -58,9 +58,28 @@ func runMe(cmd *cobra.Command, args []string) error {
 	return r.KeyValue(pairs)
 }
 
-// resolveKey gets the API key or returns an auth exit error.
+// resolveKey gets the API key for the active (or flag-overridden) workspace.
 func resolveKey() (string, error) {
-	kr := config.NewFileKeyring(mustConfigDir())
+	dir := mustConfigDir()
+
+	// Determine which workspace to use.
+	workspace := flags.Workspace
+	if workspace == "" {
+		cfg, err := config.LoadFrom(dir)
+		if err != nil {
+			return "", &ExitError{Err: fmt.Errorf("loading config: %w", err), Code: 1}
+		}
+		workspace = cfg.ActiveWorkspace
+	}
+
+	// Build the appropriate keyring.
+	var kr config.KeyringBackend
+	if workspace != "" {
+		kr = config.NewFileKeyringForWorkspace(dir, workspace)
+	} else {
+		kr = config.NewFileKeyring(dir)
+	}
+
 	key, err := config.ResolveAPIKey(kr)
 	if err != nil {
 		return "", &ExitError{Err: fmt.Errorf("reading credentials: %w", err), Code: 1}

@@ -11,10 +11,11 @@ import (
 
 // GlobalFlags holds flags shared by all commands.
 type GlobalFlags struct {
-	JSON    bool
-	Quiet   bool
-	Verbose bool
-	NoColor bool
+	JSON      bool
+	Quiet     bool
+	Verbose   bool
+	NoColor   bool
+	Workspace string
 }
 
 var flags GlobalFlags
@@ -38,8 +39,10 @@ func NewRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&flags.Quiet, "quiet", false, "Suppress non-essential output")
 	cmd.PersistentFlags().BoolVar(&flags.Verbose, "verbose", false, "Enable verbose output")
 	cmd.PersistentFlags().BoolVar(&flags.NoColor, "no-color", false, "Disable colored output")
+	cmd.PersistentFlags().StringVarP(&flags.Workspace, "workspace", "w", "", "Override active workspace for this command")
 
 	cmd.AddCommand(newMeCmd())
+	cmd.AddCommand(newWorkspaceCmd())
 	cmd.AddCommand(newAuthCmd())
 	cmd.AddCommand(newStatsCmd())
 	cmd.AddCommand(newCompletionCmd())

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
+	"github.com/e-invoicebe/peppol-cli/internal/config"
 )
 
 // newTestServer returns an httptest.Server that handles GET /api/me/.
@@ -354,5 +355,332 @@ func TestExitError(t *testing.T) {
 	}
 	if err.Error() != client.ErrUnauthorized.Error() {
 		t.Errorf("expected %q, got %q", client.ErrUnauthorized.Error(), err.Error())
+	}
+}
+
+func TestRootCmd_HelpIncludesWorkspace(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "workspace") {
+		t.Error("help output missing 'workspace' command")
+	}
+}
+
+func TestWorkspaceListCmd_Empty(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"workspace", "list"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "No workspaces") {
+		t.Errorf("expected empty workspace message, got %q", buf.String())
+	}
+}
+
+func TestWorkspaceListCmd_WithWorkspaces(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	// Set up config with workspaces.
+	configDir := dir + "/peppol-cli"
+	cfg := &config.Config{
+		ActiveWorkspace: "alpha",
+		Workspaces: map[string]config.Workspace{
+			"alpha": {Name: "Alpha Co"},
+			"beta":  {Name: "Beta Co"},
+		},
+	}
+	if err := config.SaveTo(configDir, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"workspace", "list"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "alpha") {
+		t.Error("output missing 'alpha'")
+	}
+	if !strings.Contains(output, "beta") {
+		t.Error("output missing 'beta'")
+	}
+}
+
+func TestWorkspaceUseCmd(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	// Set up config with workspaces.
+	configDir := dir + "/peppol-cli"
+	cfg := &config.Config{
+		ActiveWorkspace: "alpha",
+		Workspaces: map[string]config.Workspace{
+			"alpha": {Name: "Alpha Co"},
+			"beta":  {Name: "Beta Co"},
+		},
+	}
+	if err := config.SaveTo(configDir, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"workspace", "use", "beta"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "Switched to workspace") {
+		t.Errorf("expected switch message, got %q", buf.String())
+	}
+
+	// Verify config was updated.
+	loaded, err := config.LoadFrom(configDir)
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if loaded.ActiveWorkspace != "beta" {
+		t.Errorf("expected active 'beta', got %q", loaded.ActiveWorkspace)
+	}
+}
+
+func TestWorkspaceUseCmd_NonExistent(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	configDir := dir + "/peppol-cli"
+	cfg := &config.Config{
+		ActiveWorkspace: "alpha",
+		Workspaces: map[string]config.Workspace{
+			"alpha": {Name: "Alpha Co"},
+		},
+	}
+	config.SaveTo(configDir, cfg)
+
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"workspace", "use", "nope"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for non-existent workspace")
+	}
+}
+
+func TestWorkspaceRemoveCmd(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	configDir := dir + "/peppol-cli"
+	cfg := &config.Config{
+		ActiveWorkspace: "alpha",
+		Workspaces: map[string]config.Workspace{
+			"alpha": {Name: "Alpha Co"},
+			"beta":  {Name: "Beta Co"},
+		},
+	}
+	config.SaveTo(configDir, cfg)
+
+	// Store workspace credentials.
+	kr := config.NewFileKeyringForWorkspace(configDir, "beta")
+	kr.Set("beta-key")
+
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"workspace", "remove", "beta"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "removed") {
+		t.Errorf("expected remove message, got %q", buf.String())
+	}
+
+	// Verify workspace removed from config.
+	loaded, _ := config.LoadFrom(configDir)
+	if _, ok := loaded.Workspaces["beta"]; ok {
+		t.Error("beta should have been removed from config")
+	}
+
+	// Verify credentials removed.
+	key, _ := kr.Get()
+	if key != "" {
+		t.Errorf("expected credentials removed, got %q", key)
+	}
+}
+
+func TestWorkspaceRemoveCmd_ActiveWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	configDir := dir + "/peppol-cli"
+	cfg := &config.Config{
+		ActiveWorkspace: "alpha",
+		Workspaces: map[string]config.Workspace{
+			"alpha": {Name: "Alpha Co"},
+			"beta":  {Name: "Beta Co"},
+		},
+	}
+	config.SaveTo(configDir, cfg)
+
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"workspace", "remove", "alpha"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when removing active workspace")
+	}
+}
+
+func TestWorkspaceListCmd_JSON(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	configDir := dir + "/peppol-cli"
+	cfg := &config.Config{
+		ActiveWorkspace: "alpha",
+		Workspaces: map[string]config.Workspace{
+			"alpha": {Name: "Alpha Co"},
+		},
+	}
+	config.SaveTo(configDir, cfg)
+
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"workspace", "list", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("JSON parse error: %v\noutput: %s", err, buf.String())
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 workspace, got %d", len(result))
+	}
+	if result[0]["name"] != "alpha" {
+		t.Errorf("expected name 'alpha', got %v", result[0]["name"])
+	}
+	if result[0]["active"] != true {
+		t.Errorf("expected active true, got %v", result[0]["active"])
+	}
+}
+
+func TestWorkspaceFlagOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PEPPOL_API_KEY", "")
+
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	configDir := dir + "/peppol-cli"
+	cfg := &config.Config{
+		ActiveWorkspace: "alpha",
+		Workspaces: map[string]config.Workspace{
+			"alpha": {Name: "Alpha Co"},
+			"beta":  {Name: "Beta Co"},
+		},
+	}
+	config.SaveTo(configDir, cfg)
+
+	// Store keys for both workspaces.
+	config.NewFileKeyringForWorkspace(configDir, "alpha").Set("invalid-key")
+	config.NewFileKeyringForWorkspace(configDir, "beta").Set("valid-key")
+
+	// Using -w beta should use beta's key (valid-key) instead of alpha's.
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	tenant, err := c.GetMe()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tenant.Name != "Test Company" {
+		t.Errorf("expected 'Test Company', got %q", tenant.Name)
+	}
+}
+
+func TestSlugify(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"My Company", "my-company"},
+		{"  Alpha Co  ", "alpha-co"},
+		{"Test123", "test123"},
+		{"UPPER CASE", "upper-case"},
+		{"special!@#chars", "special-chars"},
+		{"", ""},
+		{"trailing---", "trailing"},
+	}
+
+	for _, tt := range tests {
+		got := slugify(tt.input)
+		if got != tt.want {
+			t.Errorf("slugify(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestRootCmd_WorkspaceFlag(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "--workspace") {
+		t.Error("help output missing '--workspace' flag")
+	}
+	if !strings.Contains(output, "-w") {
+		t.Error("help output missing '-w' shorthand")
 	}
 }
