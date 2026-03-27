@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 )
 
 const DefaultBaseURL = "https://api.e-invoice.be"
@@ -231,6 +232,123 @@ func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, erro
 		}
 		return nil, apiErr
 	}
+}
+
+// DocumentListParams holds query parameters for document list endpoints.
+type DocumentListParams struct {
+	Type      string
+	Sender    string
+	Receiver  string
+	State     string
+	FromDate  string
+	ToDate    string
+	Search    string
+	SortBy    string
+	SortOrder string
+	Page      int
+	PageSize  int
+}
+
+func (c *Client) listDocuments(path string, params DocumentListParams) (*PaginatedDocuments, error) {
+	req, err := http.NewRequest("GET", c.baseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	q := req.URL.Query()
+	if params.Type != "" {
+		q.Set("type", params.Type)
+	}
+	if params.Sender != "" {
+		q.Set("sender", params.Sender)
+	}
+	if params.Receiver != "" {
+		q.Set("receiver", params.Receiver)
+	}
+	if params.State != "" {
+		q.Set("state", params.State)
+	}
+	if params.FromDate != "" {
+		q.Set("date_from", params.FromDate)
+	}
+	if params.ToDate != "" {
+		q.Set("date_to", params.ToDate)
+	}
+	if params.Search != "" {
+		q.Set("search", params.Search)
+	}
+	if params.SortBy != "" {
+		q.Set("sort_by", params.SortBy)
+	}
+	if params.SortOrder != "" {
+		q.Set("sort_order", params.SortOrder)
+	}
+	if params.Page > 0 {
+		q.Set("page", strconv.Itoa(params.Page))
+	}
+	if params.PageSize > 0 {
+		q.Set("page_size", strconv.Itoa(params.PageSize))
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result PaginatedDocuments
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// ListInbox calls GET /api/inbox/ and returns paginated received documents.
+func (c *Client) ListInbox(params DocumentListParams) (*PaginatedDocuments, error) {
+	return c.listDocuments("/api/inbox/", params)
+}
+
+// ListInboxInvoices calls GET /api/inbox/invoices and returns received invoices.
+func (c *Client) ListInboxInvoices(params DocumentListParams) (*PaginatedDocuments, error) {
+	return c.listDocuments("/api/inbox/invoices", params)
+}
+
+// ListInboxCreditNotes calls GET /api/inbox/credit-notes and returns received credit notes.
+func (c *Client) ListInboxCreditNotes(params DocumentListParams) (*PaginatedDocuments, error) {
+	return c.listDocuments("/api/inbox/credit-notes", params)
+}
+
+// ListOutbox calls GET /api/outbox/ and returns paginated sent documents.
+func (c *Client) ListOutbox(params DocumentListParams) (*PaginatedDocuments, error) {
+	return c.listDocuments("/api/outbox/", params)
+}
+
+// ListOutboxDrafts calls GET /api/outbox/drafts and returns outbox draft documents.
+func (c *Client) ListOutboxDrafts(params DocumentListParams) (*PaginatedDocuments, error) {
+	return c.listDocuments("/api/outbox/drafts", params)
+}
+
+// ListDrafts calls GET /api/drafts/ and returns all draft documents.
+func (c *Client) ListDrafts(params DocumentListParams) (*PaginatedDocuments, error) {
+	return c.listDocuments("/api/drafts/", params)
 }
 
 // MaskKey returns a masked version of an API key for display.

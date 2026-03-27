@@ -11,6 +11,7 @@ import (
 	"github.com/e-invoicebe/peppol-cli/internal/client"
 	"github.com/e-invoicebe/peppol-cli/internal/config"
 	"github.com/e-invoicebe/peppol-cli/internal/output"
+	"github.com/spf13/cobra"
 )
 
 // newTestServer returns an httptest.Server that handles GET /api/me/.
@@ -922,6 +923,291 @@ func TestSlugify(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("slugify(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+// --- Inbox/Outbox/Drafts command tests ---
+
+func TestRootCmd_HelpIncludesInboxOutboxDrafts(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	for _, want := range []string{"inbox", "outbox", "drafts"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("help output missing %q", want)
+		}
+	}
+}
+
+func TestInboxListCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"inbox", "list", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	for _, flag := range []string{"--sender", "--from", "--to", "--type", "--search", "--sort-by", "--sort-order", "--page", "--page-size"} {
+		if !strings.Contains(out, flag) {
+			t.Errorf("inbox list help missing %q", flag)
+		}
+	}
+}
+
+func TestOutboxListCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"outbox", "list", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "--receiver") {
+		t.Error("outbox list help missing --receiver")
+	}
+	if strings.Contains(out, "--sender") {
+		t.Error("outbox list help should not have --sender")
+	}
+}
+
+func TestDraftsListCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"drafts", "list", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "--state") {
+		t.Error("drafts list help missing --state")
+	}
+}
+
+func newDocumentListTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	inv1 := "INV-001"
+	inv2 := "CN-002"
+	vendor1 := "Seller Co"
+	vendor2 := "Seller 2"
+	buyer1 := "Buyer Co"
+	buyer2 := "Buyer 2"
+	total1 := "1234.56"
+	total2 := "567.89"
+	date1 := "2026-01-15"
+	date2 := "2026-02-20"
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer valid-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(client.ErrorResponse{Detail: "Invalid API key"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(client.PaginatedDocuments{
+			Page: 1, PageSize: 20, Total: 2, Pages: 1,
+			Items: []client.DocumentResponse{
+				{
+					ID:           "doc-1",
+					DocumentType: client.DocumentTypeInvoice,
+					State:        client.DocumentStateReceived,
+					InvoiceID:    &inv1,
+					VendorName:   &vendor1,
+					CustomerName: &buyer1,
+					InvoiceTotal: &total1,
+					InvoiceDate:  &date1,
+					Currency:     "EUR",
+				},
+				{
+					ID:           "doc-2",
+					DocumentType: client.DocumentTypeCreditNote,
+					State:        client.DocumentStateSent,
+					InvoiceID:    &inv2,
+					VendorName:   &vendor2,
+					CustomerName: &buyer2,
+					InvoiceTotal: &total2,
+					InvoiceDate:  &date2,
+					Currency:     "EUR",
+				},
+			},
+		})
+	}))
+}
+
+func TestInboxListCmd_Integration(t *testing.T) {
+	srv := newDocumentListTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	result, err := c.ListInbox(client.DocumentListParams{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Total != 2 {
+		t.Errorf("expected total 2, got %d", result.Total)
+	}
+	if *result.Items[0].InvoiceID != "INV-001" {
+		t.Errorf("expected INV-001, got %q", *result.Items[0].InvoiceID)
+	}
+}
+
+func TestDocumentListFlags_ToParams(t *testing.T) {
+	f := DocumentListFlags{
+		DocType:   "invoice",
+		From:      "2026-01-01",
+		To:        "2026-03-01",
+		Search:    "test",
+		SortBy:    "date",
+		SortOrder: "desc",
+		Page:      2,
+		PageSize:  10,
+		Sender:    "sender-1",
+	}
+	params := f.ToParams()
+
+	if params.Type != "invoice" {
+		t.Errorf("expected type 'invoice', got %q", params.Type)
+	}
+	if params.Sender != "sender-1" {
+		t.Errorf("expected sender 'sender-1', got %q", params.Sender)
+	}
+	if params.FromDate != "2026-01-01" {
+		t.Errorf("expected from_date '2026-01-01', got %q", params.FromDate)
+	}
+	if params.Page != 2 {
+		t.Errorf("expected page 2, got %d", params.Page)
+	}
+	if params.PageSize != 10 {
+		t.Errorf("expected page_size 10, got %d", params.PageSize)
+	}
+}
+
+func TestRenderDocumentList_Empty(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+
+	result := &client.PaginatedDocuments{
+		Page: 1, PageSize: 20, Total: 0,
+		Items: []client.DocumentResponse{},
+	}
+
+	// Need to initialize context with renderer
+	subCmd := &cobra.Command{Use: "test", RunE: func(cmd *cobra.Command, args []string) error {
+		return renderDocumentList(cmd, result, CounterpartySeller)
+	}}
+	cmd.AddCommand(subCmd)
+	cmd.SetArgs([]string{"test"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "No documents found") {
+		t.Errorf("expected 'No documents found', got %q", buf.String())
+	}
+}
+
+func TestRenderDocumentList_Table(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+
+	invID := "INV-001"
+	vendor := "Seller Co"
+	buyer := "Buyer Co"
+	total := "1234.56"
+	date := "2026-01-15"
+	result := &client.PaginatedDocuments{
+		Page: 1, PageSize: 20, Total: 1,
+		Items: []client.DocumentResponse{
+			{
+				ID:           "doc-1",
+				DocumentType: client.DocumentTypeInvoice,
+				State:        client.DocumentStateReceived,
+				InvoiceID:    &invID,
+				VendorName:   &vendor,
+				CustomerName: &buyer,
+				InvoiceTotal: &total,
+				InvoiceDate:  &date,
+				Currency:     "EUR",
+			},
+		},
+	}
+
+	subCmd := &cobra.Command{Use: "test", RunE: func(cmd *cobra.Command, args []string) error {
+		return renderDocumentList(cmd, result, CounterpartySeller)
+	}}
+	cmd.AddCommand(subCmd)
+	cmd.SetArgs([]string{"test"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"doc-1", "INVOICE", "INV-001", "Seller Co", "1234.56", "2026-01-15"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("table output missing %q", want)
+		}
+	}
+}
+
+func TestRenderDocumentList_CounterpartyBuyer(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+
+	invID2 := "INV-001"
+	vendor2 := "Seller Co"
+	buyer2 := "Buyer Co"
+	total2 := "100.00"
+	date2 := "2026-01-15"
+	result := &client.PaginatedDocuments{
+		Page: 1, PageSize: 20, Total: 1,
+		Items: []client.DocumentResponse{
+			{
+				ID:           "doc-1",
+				DocumentType: client.DocumentTypeInvoice,
+				State:        client.DocumentStateSent,
+				InvoiceID:    &invID2,
+				VendorName:   &vendor2,
+				CustomerName: &buyer2,
+				InvoiceTotal: &total2,
+				InvoiceDate:  &date2,
+				Currency:     "EUR",
+			},
+		},
+	}
+
+	subCmd := &cobra.Command{Use: "test", RunE: func(cmd *cobra.Command, args []string) error {
+		return renderDocumentList(cmd, result, CounterpartyBuyer)
+	}}
+	cmd.AddCommand(subCmd)
+	cmd.SetArgs([]string{"test"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Buyer Co") {
+		t.Error("expected Buyer Co in outbox counterparty column")
 	}
 }
 
