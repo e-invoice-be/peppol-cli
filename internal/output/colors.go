@@ -15,6 +15,7 @@ var (
 	ErrorStyle   lipgloss.Style
 	WarningStyle lipgloss.Style
 	HeaderStyle  lipgloss.Style
+	InfoStyle    lipgloss.Style
 )
 
 func init() {
@@ -27,6 +28,7 @@ func initStyles() {
 	ErrorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))   // red
 	WarningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")) // yellow
 	HeaderStyle = lipgloss.NewStyle().Bold(true).Underline(true)
+	InfoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("4")) // blue
 }
 
 // StatusBadge returns a styled status string with appropriate color.

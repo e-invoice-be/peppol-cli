@@ -203,3 +203,13 @@ type StatsResponse struct {
 	AverageDailyUsage    float64              `json:"average_daily_usage"`
 	BudgetEstimationDays *float64             `json:"budget_estimation_days,omitempty"`
 }
+
+// PaginatedDocuments represents a paginated list of documents.
+type PaginatedDocuments struct {
+	Items       []DocumentResponse `json:"items"`
+	Total       int                `json:"total"`
+	Page        int                `json:"page"`
+	PageSize    int                `json:"page_size"`
+	Pages       int                `json:"pages"`
+	HasNextPage bool               `json:"has_next_page"`
+}
