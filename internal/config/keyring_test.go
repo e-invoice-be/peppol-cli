@@ -99,3 +99,60 @@ func TestResolveAPIKey_EmptyWhenNone(t *testing.T) {
 		t.Errorf("expected empty key, got %q", key)
 	}
 }
+
+func TestFileKeyringForWorkspace_Isolation(t *testing.T) {
+	dir := t.TempDir()
+
+	krA := NewFileKeyringForWorkspace(dir, "alpha")
+	krB := NewFileKeyringForWorkspace(dir, "beta")
+
+	if err := krA.Set("key-alpha"); err != nil {
+		t.Fatalf("set alpha: %v", err)
+	}
+	if err := krB.Set("key-beta"); err != nil {
+		t.Fatalf("set beta: %v", err)
+	}
+
+	keyA, _ := krA.Get()
+	keyB, _ := krB.Get()
+
+	if keyA != "key-alpha" {
+		t.Errorf("expected 'key-alpha', got %q", keyA)
+	}
+	if keyB != "key-beta" {
+		t.Errorf("expected 'key-beta', got %q", keyB)
+	}
+
+	// Remove one, other unaffected.
+	if err := krA.Remove(); err != nil {
+		t.Fatalf("remove alpha: %v", err)
+	}
+	keyA, _ = krA.Get()
+	keyB, _ = krB.Get()
+	if keyA != "" {
+		t.Errorf("alpha should be empty after remove, got %q", keyA)
+	}
+	if keyB != "key-beta" {
+		t.Errorf("beta should be unaffected, got %q", keyB)
+	}
+}
+
+func TestFileKeyringForWorkspace_IndependentFromDefault(t *testing.T) {
+	dir := t.TempDir()
+
+	krDefault := NewFileKeyring(dir)
+	krWs := NewFileKeyringForWorkspace(dir, "myco")
+
+	krDefault.Set("default-key")
+	krWs.Set("workspace-key")
+
+	keyD, _ := krDefault.Get()
+	keyW, _ := krWs.Get()
+
+	if keyD != "default-key" {
+		t.Errorf("expected 'default-key', got %q", keyD)
+	}
+	if keyW != "workspace-key" {
+		t.Errorf("expected 'workspace-key', got %q", keyW)
+	}
+}

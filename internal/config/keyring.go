@@ -81,16 +81,23 @@ func (k *OSKeyring) Remove() error {
 
 // FileKeyring stores credentials in a plain file (fallback).
 type FileKeyring struct {
-	dir string
+	dir      string
+	filename string
 }
 
-// NewFileKeyring creates a file-based credential store.
+// NewFileKeyring creates a file-based credential store using the default credentials file.
 func NewFileKeyring(dir string) *FileKeyring {
-	return &FileKeyring{dir: dir}
+	return &FileKeyring{dir: dir, filename: credsFile}
+}
+
+// NewFileKeyringForWorkspace creates a file-based credential store for a specific workspace.
+// Uses "credentials-<workspace>" as the filename.
+func NewFileKeyringForWorkspace(dir, workspace string) *FileKeyring {
+	return &FileKeyring{dir: dir, filename: credsFile + "-" + workspace}
 }
 
 func (f *FileKeyring) Get() (string, error) {
-	data, err := os.ReadFile(filepath.Join(f.dir, credsFile))
+	data, err := os.ReadFile(filepath.Join(f.dir, f.filename))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -104,11 +111,11 @@ func (f *FileKeyring) Set(apiKey string) error {
 	if err := os.MkdirAll(f.dir, 0700); err != nil {
 		return fmt.Errorf("creating credentials directory: %w", err)
 	}
-	return os.WriteFile(filepath.Join(f.dir, credsFile), []byte(apiKey), 0600)
+	return os.WriteFile(filepath.Join(f.dir, f.filename), []byte(apiKey), 0600)
 }
 
 func (f *FileKeyring) Remove() error {
-	err := os.Remove(filepath.Join(f.dir, credsFile))
+	err := os.Remove(filepath.Join(f.dir, f.filename))
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}

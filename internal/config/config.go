@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -118,4 +119,51 @@ func SaveTo(dir string, cfg *Config) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 	return os.WriteFile(filepath.Join(dir, configFile), data, 0600)
+}
+
+// AddWorkspace adds a named workspace. Returns an error if it already exists.
+func (c *Config) AddWorkspace(name string, ws Workspace) error {
+	if _, exists := c.Workspaces[name]; exists {
+		return fmt.Errorf("workspace %q already exists", name)
+	}
+	c.Workspaces[name] = ws
+	if c.ActiveWorkspace == "" {
+		c.ActiveWorkspace = name
+	}
+	return nil
+}
+
+// RemoveWorkspace removes a named workspace. Prevents removing the active
+// workspace unless it is the last one remaining.
+func (c *Config) RemoveWorkspace(name string) error {
+	if _, exists := c.Workspaces[name]; !exists {
+		return fmt.Errorf("workspace %q not found", name)
+	}
+	if c.ActiveWorkspace == name && len(c.Workspaces) > 1 {
+		return fmt.Errorf("cannot remove active workspace %q — switch to another workspace first", name)
+	}
+	delete(c.Workspaces, name)
+	if c.ActiveWorkspace == name {
+		c.ActiveWorkspace = ""
+	}
+	return nil
+}
+
+// SetActiveWorkspace switches the active workspace.
+func (c *Config) SetActiveWorkspace(name string) error {
+	if _, exists := c.Workspaces[name]; !exists {
+		return fmt.Errorf("workspace %q not found", name)
+	}
+	c.ActiveWorkspace = name
+	return nil
+}
+
+// WorkspaceNames returns a sorted list of workspace names.
+func (c *Config) WorkspaceNames() []string {
+	names := make([]string, 0, len(c.Workspaces))
+	for name := range c.Workspaces {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

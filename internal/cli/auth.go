@@ -60,9 +60,18 @@ func runAuth(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(w, " OK")
 	}
 
-	// Store the key.
+	// Determine workspace name: use flag override, else derive from tenant name.
 	dir := mustConfigDir()
-	kr := config.NewFileKeyring(dir)
+	wsName := flags.Workspace
+	if wsName == "" {
+		wsName = slugify(tenant.Name)
+	}
+	if wsName == "" {
+		wsName = "default"
+	}
+
+	// Store the key in workspace-specific keyring.
+	kr := config.NewFileKeyringForWorkspace(dir, wsName)
 	if err := kr.Set(apiKey); err != nil {
 		return &ExitError{Err: fmt.Errorf("storing credentials: %w", err), Code: 1}
 	}
@@ -72,13 +81,13 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		cfg = &config.Config{Workspaces: make(map[string]config.Workspace)}
 	}
-	cfg.ActiveWorkspace = "default"
-	cfg.Workspaces["default"] = config.Workspace{Name: tenant.Name}
+	cfg.Workspaces[wsName] = config.Workspace{Name: tenant.Name}
+	cfg.ActiveWorkspace = wsName
 	if err := config.SaveTo(dir, cfg); err != nil {
 		return &ExitError{Err: fmt.Errorf("saving config: %w", err), Code: 1}
 	}
 
-	fmt.Fprintf(w, "Authenticated as %s\n", tenant.Name)
+	fmt.Fprintf(w, "Authenticated as %s (workspace: %s)\n", tenant.Name, wsName)
 	return nil
 }
 
@@ -94,7 +103,24 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	dir := mustConfigDir()
 
-	kr := config.NewFileKeyring(dir)
+	cfg, err := config.LoadFrom(dir)
+	if err != nil {
+		cfg = &config.Config{Workspaces: make(map[string]config.Workspace)}
+	}
+
+	// Determine workspace.
+	workspace := flags.Workspace
+	if workspace == "" {
+		workspace = cfg.ActiveWorkspace
+	}
+
+	// Resolve key for the workspace.
+	var kr config.KeyringBackend
+	if workspace != "" {
+		kr = config.NewFileKeyringForWorkspace(dir, workspace)
+	} else {
+		kr = config.NewFileKeyring(dir)
+	}
 	key, err := config.ResolveAPIKey(kr)
 	if err != nil {
 		return &ExitError{Err: fmt.Errorf("reading credentials: %w", err), Code: 1}
@@ -105,14 +131,8 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cfg, err := config.LoadFrom(dir)
-	if err != nil || cfg.ActiveWorkspace == "" {
-		fmt.Fprintf(w, "Authenticated (key: %s)\n", client.MaskKey(key))
-		return nil
-	}
-
-	if ws, ok := cfg.Workspaces[cfg.ActiveWorkspace]; ok {
-		fmt.Fprintf(w, "Authenticated as %s (key: %s)\n", ws.Name, client.MaskKey(key))
+	if ws, ok := cfg.Workspaces[workspace]; ok {
+		fmt.Fprintf(w, "Authenticated as %s (workspace: %s, key: %s)\n", ws.Name, workspace, client.MaskKey(key))
 	} else {
 		fmt.Fprintf(w, "Authenticated (key: %s)\n", client.MaskKey(key))
 	}
@@ -131,18 +151,58 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	dir := mustConfigDir()
 
-	kr := config.NewFileKeyring(dir)
+	cfg, err := config.LoadFrom(dir)
+	if err != nil {
+		cfg = &config.Config{Workspaces: make(map[string]config.Workspace)}
+	}
+
+	// Determine workspace.
+	workspace := flags.Workspace
+	if workspace == "" {
+		workspace = cfg.ActiveWorkspace
+	}
+
+	// Remove credentials for the workspace.
+	var kr config.KeyringBackend
+	if workspace != "" {
+		kr = config.NewFileKeyringForWorkspace(dir, workspace)
+	} else {
+		kr = config.NewFileKeyring(dir)
+	}
 	if err := kr.Remove(); err != nil {
 		return &ExitError{Err: fmt.Errorf("removing credentials: %w", err), Code: 1}
 	}
 
-	// Clear workspace from config.
-	cfg, err := config.LoadFrom(dir)
-	if err == nil {
-		cfg.ActiveWorkspace = ""
-		_ = config.SaveTo(dir, cfg)
+	// Remove workspace from config.
+	if workspace != "" {
+		delete(cfg.Workspaces, workspace)
+		if cfg.ActiveWorkspace == workspace {
+			cfg.ActiveWorkspace = ""
+		}
 	}
+	_ = config.SaveTo(dir, cfg)
 
 	fmt.Fprintln(w, "Logged out successfully")
 	return nil
+}
+
+// slugify converts a name to a lowercase, hyphenated slug suitable for use as a workspace name.
+func slugify(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	prevDash := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash && b.Len() > 0 {
+				b.WriteRune('-')
+				prevDash = true
+			}
+		}
+	}
+	result := b.String()
+	return strings.TrimRight(result, "-")
 }
