@@ -106,6 +106,55 @@ func (c *Client) GetMe() (*TenantPublic, error) {
 	}
 }
 
+// GetStats calls GET /api/stats and returns usage statistics.
+func (c *Client) GetStats(startDate, endDate, aggregation string) (*StatsResponse, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/stats", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	q := req.URL.Query()
+	if startDate != "" {
+		q.Set("start_date", startDate)
+	}
+	if endDate != "" {
+		q.Set("end_date", endDate)
+	}
+	if aggregation != "" {
+		q.Set("aggregation", aggregation)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var stats StatsResponse
+		if err := json.Unmarshal(body, &stats); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &stats, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
 // MaskKey returns a masked version of an API key for display.
 func MaskKey(key string) string {
 	if len(key) <= 4 {
