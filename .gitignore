@@ -1,6 +1,9 @@
 # Binary
 /peppol
 
+# goreleaser
+dist/
+
 # IDE
 .idea/
 .vscode/

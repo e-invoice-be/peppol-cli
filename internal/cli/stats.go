@@ -104,5 +104,5 @@ func renderActionsTable(cmd *cobra.Command, actions []client.ActionStats) {
 		row := byDate[d]
 		fmt.Fprintf(tw, "%s\t%d\t%d\n", row.date, row.sent, row.received)
 	}
-	tw.Flush()
+	_ = tw.Flush()
 }

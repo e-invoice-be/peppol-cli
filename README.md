@@ -4,9 +4,22 @@ CLI for the [e-invoice.be](https://e-invoice.be) Peppol Access Point API.
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap e-invoice-be/tap
+brew install peppol
+```
+
+### Go install
+
 ```bash
 go install github.com/e-invoicebe/peppol-cli/cmd/peppol@latest
 ```
+
+### Binary download
+
+Download pre-built binaries from [GitHub Releases](https://github.com/e-invoice-be/peppol-cli/releases).
 
 ## Authentication
 
@@ -37,6 +50,9 @@ peppol stats --from 2026-01-01 --to 2026-03-01 --aggregation MONTH
 # JSON output (available for all commands)
 peppol me --json
 peppol stats --json
+
+# Print version information
+peppol version
 ```
 
 ## Shell Completions
@@ -90,11 +106,18 @@ peppol completion powershell > peppol.ps1
 
 ```bash
 # Build
-go build -o peppol ./cmd/peppol
+make build
 
-# Test
-go test ./...
+# Run tests
+make test
 
-# Vet
-go vet ./...
+# Lint
+make lint
+
+# Test release (snapshot)
+make release-dry
 ```
+
+## License
+
+See [LICENSE](LICENSE).

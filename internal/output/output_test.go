@@ -253,7 +253,7 @@ func TestFromContext_Roundtrip(t *testing.T) {
 }
 
 func TestFromContext_Nil(t *testing.T) {
-	r := FromContext(nil)
+	r := FromContext(context.TODO())
 	if r == nil {
 		t.Fatal("FromContext(nil) should return a non-nil default renderer")
 	}

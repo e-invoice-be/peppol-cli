@@ -26,7 +26,7 @@ func (r *Renderer) Table(headers []string, rows [][]string) error {
 		for i, v := range row {
 			vals[i] = v
 		}
-		tw.Append(vals...)
+		_ = tw.Append(vals...)
 	}
 
 	return tw.Render()
