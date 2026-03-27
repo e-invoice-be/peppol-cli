@@ -510,6 +510,232 @@ func TestListDrafts_Success(t *testing.T) {
 	}
 }
 
+
+func TestLookupPeppolID_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/lookup" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("peppol_id") != "0208:1018265814" {
+			t.Errorf("unexpected peppol_id: %s", r.URL.Query().Get("peppol_id"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"queryMetadata": {
+				"identifierScheme": "iso6523-actorid-upis",
+				"identifierValue": "0208:1018265814",
+				"smlDomain": "edelivery.tech.ec.europa.eu",
+				"timestamp": "2026-01-12T14:32:10.123456",
+				"version": "1.0.0"
+			},
+			"status": "success",
+			"dnsInfo": {
+				"status": "success",
+				"smpHostname": "smp.example.be",
+				"smlHostname": "edelivery.tech.ec.europa.eu",
+				"dnsRecords": []
+			},
+			"businessCard": {
+				"status": "success",
+				"entities": [
+					{
+						"name": "Example Corp",
+						"countryCode": "BE",
+						"identifiers": [{"scheme": "BE:CBE", "value": "1018265814"}]
+					}
+				],
+				"queryTimeMs": 123.45
+			},
+			"executionTimeMs": 456.78
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	result, err := c.LookupPeppolID("0208:1018265814")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "success" {
+		t.Errorf("expected status 'success', got %q", result.Status)
+	}
+	if result.QueryMetadata == nil || result.QueryMetadata.IdentifierValue != "0208:1018265814" {
+		t.Error("expected queryMetadata with identifierValue '0208:1018265814'")
+	}
+	if result.BusinessCard == nil || len(result.BusinessCard.Entities) != 1 {
+		t.Fatal("expected 1 business entity")
+	}
+	if *result.BusinessCard.Entities[0].Name != "Example Corp" {
+		t.Errorf("expected entity name 'Example Corp', got %q", *result.BusinessCard.Entities[0].Name)
+	}
+}
+
+func TestLookupPeppolID_ValidationError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Invalid Peppol ID format"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.LookupPeppolID("invalid")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %v", err)
+	}
+	if apiErr.StatusCode != 422 {
+		t.Errorf("expected status 422, got %d", apiErr.StatusCode)
+	}
+	if apiErr.Detail != "Invalid Peppol ID format" {
+		t.Errorf("expected detail 'Invalid Peppol ID format', got %q", apiErr.Detail)
+	}
+}
+
+func TestLookupPeppolID_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	c := NewClient("bad-key", WithBaseURL(srv.URL))
+	_, err := c.LookupPeppolID("0208:1018265814")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
+func TestSearchPeppolParticipants_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/lookup/participants" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("query") != "test" {
+			t.Errorf("unexpected query: %s", r.URL.Query().Get("query"))
+		}
+		if r.URL.Query().Get("country_code") != "BE" {
+			t.Errorf("unexpected country_code: %s", r.URL.Query().Get("country_code"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"total_count": 2,
+			"used_count": 2,
+			"participants": [
+				{
+					"peppol_id": "0208:1018265814",
+					"peppol_scheme": "iso6523-actorid-upis",
+					"entities": [{"name": "Test Corp", "country_code": "BE"}],
+					"document_types": [{"scheme": "busdox-docid-qns", "value": "invoice"}]
+				},
+				{
+					"peppol_id": "0208:0663934910",
+					"peppol_scheme": "iso6523-actorid-upis",
+					"entities": [{"name": "Another Corp", "country_code": "BE"}]
+				}
+			],
+			"query_terms": "test",
+			"search_date": "2026-03-27"
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	result, err := c.SearchPeppolParticipants("test", "BE")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.TotalCount != 2 {
+		t.Errorf("expected total_count 2, got %d", result.TotalCount)
+	}
+	if len(result.Participants) != 2 {
+		t.Fatalf("expected 2 participants, got %d", len(result.Participants))
+	}
+	if result.Participants[0].PeppolID != "0208:1018265814" {
+		t.Errorf("expected peppol_id '0208:1018265814', got %q", result.Participants[0].PeppolID)
+	}
+}
+
+func TestSearchPeppolParticipants_NoCountry(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"total_count":0,"used_count":0,"participants":[],"query_terms":"test","search_date":"2026-03-27"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.SearchPeppolParticipants("test", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotQuery.Get("country_code") != "" {
+		t.Errorf("expected no country_code param, got %q", gotQuery.Get("country_code"))
+	}
+}
+
+func TestValidatePeppolID_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/validate/peppol-id" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("peppol_id") != "0208:1018265814" {
+			t.Errorf("unexpected peppol_id: %s", r.URL.Query().Get("peppol_id"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"is_valid": true,
+			"dns_valid": true,
+			"business_card_valid": true,
+			"supported_document_types": ["invoice", "credit_note"],
+			"business_card": {
+				"name": "Example Corp",
+				"country_code": "BE",
+				"registration_date": "2021-06-15"
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	result, err := c.ValidatePeppolID("0208:1018265814")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsValid {
+		t.Error("expected is_valid true")
+	}
+	if !result.DNSValid {
+		t.Error("expected dns_valid true")
+	}
+	if !result.BusinessCardValid {
+		t.Error("expected business_card_valid true")
+	}
+	if len(result.SupportedDocumentTypes) != 2 {
+		t.Errorf("expected 2 document types, got %d", len(result.SupportedDocumentTypes))
+	}
+	if result.BusinessCard == nil || *result.BusinessCard.Name != "Example Corp" {
+		t.Error("expected business card with name 'Example Corp'")
+	}
+}
+
+func TestValidatePeppolID_ValidationError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Invalid Peppol ID format"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.ValidatePeppolID("bad-id")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %v", err)
+	}
+	if apiErr.StatusCode != 422 {
+		t.Errorf("expected status 422, got %d", apiErr.StatusCode)
+	}
+}
+
 func TestMaskKey(t *testing.T) {
 	tests := []struct {
 		input string

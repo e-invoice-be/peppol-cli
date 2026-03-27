@@ -1212,6 +1212,260 @@ func TestRenderDocumentList_CounterpartyBuyer(t *testing.T) {
 	}
 }
 
+func TestRootCmd_HelpIncludesLookupAndValidate(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "lookup") {
+		t.Error("help output missing 'lookup' command")
+	}
+	if !strings.Contains(out, "validate") {
+		t.Error("help output missing 'validate' command")
+	}
+}
+
+func TestLookupCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"lookup", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "peppol-id") {
+		t.Errorf("lookup help missing 'peppol-id', got:\n%s", out)
+	}
+	if !strings.Contains(out, "search") {
+		t.Errorf("lookup help missing 'search' subcommand, got:\n%s", out)
+	}
+}
+
+func TestLookupSearchCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"lookup", "search", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "--country") {
+		t.Errorf("search help missing '--country' flag, got:\n%s", out)
+	}
+}
+
+func TestValidatePeppolIDCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"validate", "peppol-id", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Validate a Peppol") {
+		t.Errorf("validate help missing description, got:\n%s", out)
+	}
+}
+
+func TestRenderLookupResult(t *testing.T) {
+	name := "Example Corp"
+	country := "BE"
+	smpHost := "smp.example.be"
+	result := &client.PeppolIdLookupResponse{
+		Status: "success",
+		QueryMetadata: &client.QueryMetadata{
+			IdentifierValue: "0208:1018265814",
+		},
+		DnsInfo: &client.DnsInfo{
+			Status:      "success",
+			SMPHostname: &smpHost,
+			SMLHostname: "edelivery.tech.ec.europa.eu",
+		},
+		BusinessCard: &client.LookupBusinessCard{
+			Status: "success",
+			Entities: []client.BusinessEntity{
+				{
+					Name:        &name,
+					CountryCode: &country,
+					Identifiers: []client.PeppolIdentifier{{Scheme: "BE:CBE", Value: "1018265814"}},
+				},
+			},
+		},
+		ExecutionTimeMS: 456.78,
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderLookupResult(r, result); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"SUCCESS", "0208:1018265814", "Yes", "smp.example.be", "457ms", "Example Corp", "BE", "BE:CBE: 1018265814"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderSearchResults(t *testing.T) {
+	name := "Test Corp"
+	country := "BE"
+	result := &client.PeppolSearchResult{
+		TotalCount: 1,
+		UsedCount:  1,
+		Participants: []client.PeppolParticipant{
+			{
+				PeppolID:     "0208:1018265814",
+				PeppolScheme: "iso6523-actorid-upis",
+				Entities: []client.PeppolEntity{
+					{Name: &name, CountryCode: &country},
+				},
+				DocumentTypes: []client.PeppolDocumentType{
+					{Scheme: "busdox", Value: "invoice"},
+				},
+			},
+		},
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderSearchResults(r, result); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"Found 1 participants", "0208:1018265814", "Test Corp", "BE"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderSearchResults_Empty(t *testing.T) {
+	result := &client.PeppolSearchResult{
+		TotalCount: 0,
+		UsedCount:  0,
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderSearchResults(r, result); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Found 0 participants") {
+		t.Errorf("expected 'Found 0 participants', got:\n%s", out)
+	}
+}
+
+func TestRenderValidationResult_Valid(t *testing.T) {
+	name := "Cezarotrans"
+	country := "BE"
+	regDate := "2026-02-16"
+	result := &client.PeppolIdValidationResponse{
+		IsValid:           true,
+		DNSValid:          true,
+		BusinessCardValid: true,
+		SupportedDocumentTypes: []string{
+			"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1",
+			"urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2::CreditNote##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1",
+			"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:selfbilling:3.0::2.1",
+		},
+		BusinessCard: &client.ValidationBusinessCard{
+			Name:             &name,
+			CountryCode:      &country,
+			RegistrationDate: &regDate,
+		},
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderValidationResult(r, result); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"VALID", "Yes", "Cezarotrans", "BE", "2026-02-16", "Supported Document Types (3)", "Invoice", "CreditNote", "Peppol BIS Billing 3.0", "Peppol Self-Billing 3.0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderValidationResult_Invalid(t *testing.T) {
+	result := &client.PeppolIdValidationResponse{
+		IsValid:           false,
+		DNSValid:          false,
+		BusinessCardValid: false,
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderValidationResult(r, result); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "INVALID") {
+		t.Errorf("output missing 'INVALID'\nGot:\n%s", out)
+	}
+	if !strings.Contains(out, "No") {
+		t.Errorf("output missing 'No'\nGot:\n%s", out)
+	}
+}
+
+func TestParseDocumentTypeURN(t *testing.T) {
+	tests := []struct {
+		urn         string
+		wantType    string
+		wantProfile string
+	}{
+		{
+			"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1",
+			"Invoice", "Peppol BIS Billing 3.0",
+		},
+		{
+			"urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2::CreditNote##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1",
+			"CreditNote", "Peppol BIS Billing 3.0",
+		},
+		{
+			"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:nen.nl:nlcius:v1.0::2.1",
+			"Invoice", "NL CIUS",
+		},
+		{
+			"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:selfbilling:3.0::2.1",
+			"Invoice", "Peppol Self-Billing 3.0",
+		},
+	}
+	for _, tt := range tests {
+		gotType, gotProfile := parseDocumentTypeURN(tt.urn)
+		if gotType != tt.wantType {
+			t.Errorf("parseDocumentTypeURN(%q) type = %q, want %q", tt.urn, gotType, tt.wantType)
+		}
+		if gotProfile != tt.wantProfile {
+			t.Errorf("parseDocumentTypeURN(%q) profile = %q, want %q", tt.urn, gotProfile, tt.wantProfile)
+		}
+	}
+}
+
+
 func TestRootCmd_WorkspaceFlag(t *testing.T) {
 	cmd := NewRootCmd()
 	buf := new(bytes.Buffer)
