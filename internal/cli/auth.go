@@ -140,7 +140,7 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadFrom(dir)
 	if err == nil {
 		cfg.ActiveWorkspace = ""
-		config.SaveTo(dir, cfg)
+		_ = config.SaveTo(dir, cfg)
 	}
 
 	fmt.Fprintln(w, "Logged out successfully")
