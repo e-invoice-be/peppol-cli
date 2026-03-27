@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -524,5 +526,165 @@ func TestMaskKey(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("MaskKey(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestListAttachments_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/documents/doc-1/attachments" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[{"id":"att-1","file_name":"invoice.pdf","file_type":"application/pdf","file_size":1024}]`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	atts, err := c.ListAttachments("doc-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(atts) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(atts))
+	}
+	if atts[0].ID != "att-1" {
+		t.Errorf("expected id 'att-1', got %q", atts[0].ID)
+	}
+	if atts[0].FileName != "invoice.pdf" {
+		t.Errorf("expected file_name 'invoice.pdf', got %q", atts[0].FileName)
+	}
+}
+
+func TestListAttachments_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Invalid API key"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("bad-key", WithBaseURL(srv.URL))
+	_, err := c.ListAttachments("doc-1")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
+func TestGetAttachment_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/documents/doc-1/attachments/att-1" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fileURL := "https://example.com/file.pdf"
+		json.NewEncoder(w).Encode(DocumentAttachment{
+			ID: "att-1", FileName: "invoice.pdf", FileType: "application/pdf", FileSize: 2048, FileURL: &fileURL,
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	att, err := c.GetAttachment("doc-1", "att-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if att.ID != "att-1" {
+		t.Errorf("expected id 'att-1', got %q", att.ID)
+	}
+	if att.FileURL == nil || *att.FileURL != "https://example.com/file.pdf" {
+		t.Errorf("unexpected file_url: %v", att.FileURL)
+	}
+}
+
+func TestGetAttachment_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.GetAttachment("doc-1", "nonexistent")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestAddAttachment_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/documents/doc-1/attachments" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		ct := r.Header.Get("Content-Type")
+		if ct == "" || len(ct) < 10 {
+			t.Error("expected multipart content-type")
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("failed to parse multipart: %v", err)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("missing file field: %v", err)
+		}
+		defer file.Close()
+		if header.Filename != "test.pdf" {
+			t.Errorf("expected filename 'test.pdf', got %q", header.Filename)
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"att-new","file_name":"test.pdf","file_type":"application/pdf","file_size":512}`))
+	}))
+	defer srv.Close()
+
+	// Create a temp file to upload.
+	tmp, err := os.CreateTemp(t.TempDir(), "test-*.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp.Write([]byte("fake pdf content"))
+	tmp.Close()
+	// Rename to test.pdf for predictable filename.
+	testFile := filepath.Join(t.TempDir(), "test.pdf")
+	os.Rename(tmp.Name(), testFile)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	att, err := c.AddAttachment("doc-1", testFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if att.ID != "att-new" {
+		t.Errorf("expected id 'att-new', got %q", att.ID)
+	}
+	if att.FileName != "test.pdf" {
+		t.Errorf("expected file_name 'test.pdf', got %q", att.FileName)
+	}
+}
+
+func TestDeleteAttachment_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/documents/doc-1/attachments/att-1" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"is_deleted":true}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	result, err := c.DeleteAttachment("doc-1", "att-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsDeleted {
+		t.Error("expected is_deleted to be true")
 	}
 }

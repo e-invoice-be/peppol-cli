@@ -1,11 +1,15 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -220,6 +224,180 @@ func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, erro
 			return nil, fmt.Errorf("parsing response: %w", err)
 		}
 		return &timeline, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// ListAttachments calls GET /api/documents/{document_id}/attachments and returns the attachments.
+func (c *Client) ListAttachments(documentID string) ([]DocumentAttachment, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/attachments", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var attachments []DocumentAttachment
+		if err := json.Unmarshal(body, &attachments); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return attachments, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// GetAttachment calls GET /api/documents/{document_id}/attachments/{attachment_id}.
+func (c *Client) GetAttachment(documentID, attachmentID string) (*DocumentAttachment, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var att DocumentAttachment
+		if err := json.Unmarshal(body, &att); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &att, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// AddAttachment uploads a file as an attachment via POST /api/documents/{document_id}/attachments.
+func (c *Client) AddAttachment(documentID, filePath string) (*DocumentAttachment, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("opening file: %w", err)
+	}
+	defer f.Close()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return nil, fmt.Errorf("creating form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return nil, fmt.Errorf("copying file data: %w", err)
+	}
+	w.Close()
+
+	req, err := http.NewRequest("POST", c.baseURL+"/api/documents/"+documentID+"/attachments", &buf)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusOK:
+		var att DocumentAttachment
+		if err := json.Unmarshal(respBody, &att); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &att, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(respBody, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// DeleteAttachment calls DELETE /api/documents/{document_id}/attachments/{attachment_id}.
+func (c *Client) DeleteAttachment(documentID, attachmentID string) (*DocumentAttachmentDelete, error) {
+	req, err := http.NewRequest("DELETE", c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result DocumentAttachmentDelete
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &result, nil
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	case http.StatusNotFound:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -1227,5 +1228,204 @@ func TestRootCmd_WorkspaceFlag(t *testing.T) {
 	}
 	if !strings.Contains(output, "-w") {
 		t.Error("help output missing '-w' shorthand")
+	}
+}
+
+// --- Attachment tests ---
+
+func newAttachmentTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer valid-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(client.ErrorResponse{Detail: "Invalid API key"})
+			return
+		}
+
+		switch {
+		case r.URL.Path == "/api/documents/doc-1/attachments" && r.Method == "GET":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`[
+				{"id":"att-1","file_name":"invoice.pdf","file_type":"application/pdf","file_size":102400},
+				{"id":"att-2","file_name":"receipt.png","file_type":"image/png","file_size":2048}
+			]`))
+		case r.URL.Path == "/api/documents/doc-1/attachments/att-1" && r.Method == "GET":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"id":"att-1","file_name":"invoice.pdf","file_type":"application/pdf","file_size":102400,"file_url":"https://example.com/invoice.pdf"}`))
+		case r.URL.Path == "/api/documents/doc-1/attachments" && r.Method == "POST":
+			w.WriteHeader(http.StatusCreated)
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"id":"att-new","file_name":"upload.pdf","file_type":"application/pdf","file_size":512}`))
+		case r.URL.Path == "/api/documents/doc-1/attachments/att-1" && r.Method == "DELETE":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"is_deleted":true}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(client.ErrorResponse{Detail: "not found"})
+		}
+	}))
+}
+
+func TestAttachmentListCmd_TextOutput(t *testing.T) {
+	srv := newAttachmentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	atts, err := c.ListAttachments("doc-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderAttachmentList(r, atts); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"att-1", "invoice.pdf", "application/pdf", "100.0 KB", "att-2", "receipt.png", "2.0 KB"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestAttachmentListCmd_Empty(t *testing.T) {
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderAttachmentList(r, nil); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "No attachments") {
+		t.Errorf("expected 'No attachments' message, got %q", buf.String())
+	}
+}
+
+func TestAttachmentListCmd_JSONOutput(t *testing.T) {
+	srv := newAttachmentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	atts, err := c.ListAttachments("doc-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.Marshal(atts)
+	if err != nil {
+		t.Fatalf("JSON marshal error: %v", err)
+	}
+
+	var parsed []map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("JSON unmarshal error: %v", err)
+	}
+	if len(parsed) != 2 {
+		t.Errorf("expected 2 attachments, got %d", len(parsed))
+	}
+	if parsed[0]["id"] != "att-1" {
+		t.Errorf("expected first id 'att-1', got %v", parsed[0]["id"])
+	}
+}
+
+func TestAttachmentGetCmd_TextOutput(t *testing.T) {
+	srv := newAttachmentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	att, err := c.GetAttachment("doc-1", "att-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := r.KeyValue([]output.KVPair{
+		{Key: "ID", Value: att.ID},
+		{Key: "Filename", Value: att.FileName},
+		{Key: "Type", Value: att.FileType},
+		{Key: "Size", Value: formatFileSize(att.FileSize)},
+	}); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"att-1", "invoice.pdf", "application/pdf", "100.0 KB"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestAttachmentAddCmd_JSONOutput(t *testing.T) {
+	srv := newAttachmentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+
+	tmp, err := os.CreateTemp(t.TempDir(), "test-*.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp.Write([]byte("fake pdf"))
+	tmp.Close()
+
+	att, err := c.AddAttachment("doc-1", tmp.Name())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if att.ID != "att-new" {
+		t.Errorf("expected id 'att-new', got %q", att.ID)
+	}
+}
+
+func TestAttachmentDeleteCmd_Success(t *testing.T) {
+	srv := newAttachmentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	result, err := c.DeleteAttachment("doc-1", "att-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsDeleted {
+		t.Error("expected is_deleted to be true")
+	}
+}
+
+func TestAttachmentCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"document", "attachment", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("help command failed: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"list", "get", "add", "delete"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatFileSize(t *testing.T) {
+	tests := []struct {
+		input int
+		want  string
+	}{
+		{500, "500 B"},
+		{1024, "1.0 KB"},
+		{2048, "2.0 KB"},
+		{1048576, "1.0 MB"},
+		{1572864, "1.5 MB"},
+	}
+	for _, tt := range tests {
+		got := formatFileSize(tt.input)
+		if got != tt.want {
+			t.Errorf("formatFileSize(%d) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
