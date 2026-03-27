@@ -322,18 +322,22 @@ func (c *Client) AddAttachment(documentID, filePath string) (*DocumentAttachment
 	if err != nil {
 		return nil, fmt.Errorf("opening file: %w", err)
 	}
-	defer f.Close()
 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	part, err := w.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
+		_ = f.Close()
 		return nil, fmt.Errorf("creating form file: %w", err)
 	}
 	if _, err := io.Copy(part, f); err != nil {
+		_ = f.Close()
 		return nil, fmt.Errorf("copying file data: %w", err)
 	}
-	w.Close()
+	_ = f.Close()
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart writer: %w", err)
+	}
 
 	req, err := http.NewRequest("POST", c.baseURL+"/api/documents/"+documentID+"/attachments", &buf)
 	if err != nil {
