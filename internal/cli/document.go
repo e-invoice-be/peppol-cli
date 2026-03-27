@@ -19,6 +19,7 @@ func newDocumentCmd() *cobra.Command {
 
 	cmd.AddCommand(newDocumentGetCmd())
 	cmd.AddCommand(newDocumentTimelineCmd())
+	cmd.AddCommand(newAttachmentCmd())
 
 	return cmd
 }

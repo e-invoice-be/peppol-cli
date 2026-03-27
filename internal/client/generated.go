@@ -204,6 +204,20 @@ type StatsResponse struct {
 	BudgetEstimationDays *float64             `json:"budget_estimation_days,omitempty"`
 }
 
+// DocumentAttachment represents an attachment on a document.
+type DocumentAttachment struct {
+	ID       string  `json:"id"`
+	FileName string  `json:"file_name"`
+	FileType string  `json:"file_type"`
+	FileSize int     `json:"file_size"`
+	FileURL  *string `json:"file_url,omitempty"`
+}
+
+// DocumentAttachmentDelete represents the response from DELETE /api/documents/{id}/attachments/{att_id}.
+type DocumentAttachmentDelete struct {
+	IsDeleted bool `json:"is_deleted"`
+}
+
 // PaginatedDocuments represents a paginated list of documents.
 type PaginatedDocuments struct {
 	Items       []DocumentResponse `json:"items"`
