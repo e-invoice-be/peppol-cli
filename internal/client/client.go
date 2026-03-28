@@ -416,6 +416,262 @@ func (c *Client) DeleteAttachment(documentID, attachmentID string) (*DocumentAtt
 	}
 }
 
+// CreateDocumentJSON creates a document from a JSON file.
+func (c *Client) CreateDocumentJSON(filePath string, constructPDF bool) (*DocumentResponse, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading file: %w", err)
+	}
+
+	url := c.baseURL + "/api/documents/"
+	if constructPDF {
+		url += "?construct_pdf=true"
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		var doc DocumentResponse
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &doc, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// CreateDocumentFromUBL creates a document from a UBL/XML file.
+func (c *Client) CreateDocumentFromUBL(filePath string) (*DocumentResponse, error) {
+	resp, err := c.postMultipartFile(c.baseURL+"/api/documents/ubl", filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		var doc DocumentResponse
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &doc, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// CreateDocumentFromPDF creates a document from a PDF file.
+func (c *Client) CreateDocumentFromPDF(filePath, vendorTaxID, customerTaxID string) (*DocumentCreateFromPdfResponse, error) {
+	url := c.baseURL + "/api/documents/pdf"
+	q := make([]string, 0)
+	if vendorTaxID != "" {
+		q = append(q, "vendor_tax_id="+vendorTaxID)
+	}
+	if customerTaxID != "" {
+		q = append(q, "customer_tax_id="+customerTaxID)
+	}
+	if len(q) > 0 {
+		url += "?"
+		for i, param := range q {
+			if i > 0 {
+				url += "&"
+			}
+			url += param
+		}
+	}
+
+	resp, err := c.postMultipartFile(url, filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		var doc DocumentCreateFromPdfResponse
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &doc, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// SendDocument sends a document via Peppol.
+func (c *Client) SendDocument(documentID string, opts SendDocumentOptions) (*DocumentResponse, error) {
+	req, err := http.NewRequest("POST", c.baseURL+"/api/documents/"+documentID+"/send", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	q := req.URL.Query()
+	if opts.SenderPeppolScheme != "" {
+		q.Set("sender_peppol_scheme", opts.SenderPeppolScheme)
+	}
+	if opts.SenderPeppolID != "" {
+		q.Set("sender_peppol_id", opts.SenderPeppolID)
+	}
+	if opts.ReceiverPeppolScheme != "" {
+		q.Set("receiver_peppol_scheme", opts.ReceiverPeppolScheme)
+	}
+	if opts.ReceiverPeppolID != "" {
+		q.Set("receiver_peppol_id", opts.ReceiverPeppolID)
+	}
+	if opts.Email != "" {
+		q.Set("email", opts.Email)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var doc DocumentResponse
+		if err := json.Unmarshal(body, &doc); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &doc, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// ValidateDocument validates a document against Peppol BIS Billing 3.0.
+func (c *Client) ValidateDocument(documentID string) (*ValidationResponse, error) {
+	req, err := http.NewRequest("POST", c.baseURL+"/api/documents/"+documentID+"/validate", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var val ValidationResponse
+		if err := json.Unmarshal(body, &val); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &val, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// postMultipartFile sends a file as multipart/form-data POST request.
+func (c *Client) postMultipartFile(url, filePath string) (*http.Response, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("opening file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return nil, fmt.Errorf("creating form file: %w", err)
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return nil, fmt.Errorf("copying file: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("closing multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	return c.httpClient.Do(req)
+}
+
 // DocumentListParams holds query parameters for document list endpoints.
 type DocumentListParams struct {
 	Type      string
