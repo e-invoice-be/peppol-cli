@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
@@ -17,6 +18,8 @@ func newValidateCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newValidatePeppolIDCmd())
+	cmd.AddCommand(newValidateJSONCmd())
+	cmd.AddCommand(newValidateUBLCmd())
 
 	return cmd
 }
@@ -102,6 +105,143 @@ func renderValidationResult(r *output.Renderer, result *client.PeppolIdValidatio
 	}
 
 	return nil
+}
+
+// --- File validation commands ---
+
+func newValidateJSONCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "json <file>",
+		Short: "Validate a JSON document against Peppol BIS Billing 3.0",
+		Long:  "Validate a JSON invoice file against Peppol BIS Billing 3.0 rules.\nUse --file - to read from stdin.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runValidateJSON,
+	}
+	cmd.Flags().String("file", "", "Read from file path (use - for stdin)")
+	return cmd
+}
+
+func runValidateJSON(cmd *cobra.Command, args []string) error {
+	fileFlag, _ := cmd.Flags().GetString("file")
+
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	c := client.NewClient(apiKey)
+
+	var val *client.ValidationResponse
+	switch {
+	case fileFlag == "-":
+		val, err = c.ValidateJSONReader(os.Stdin)
+	case fileFlag != "":
+		if _, statErr := os.Stat(fileFlag); statErr != nil {
+			return &ExitError{Err: fmt.Errorf("file not found: %s", fileFlag), Code: 1}
+		}
+		val, err = c.ValidateJSON(fileFlag)
+	case len(args) == 1:
+		filePath := args[0]
+		if _, statErr := os.Stat(filePath); statErr != nil {
+			return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
+		}
+		val, err = c.ValidateJSON(filePath)
+	default:
+		return &ExitError{Err: fmt.Errorf("provide a file path as argument or use --file -"), Code: 1}
+	}
+
+	if err != nil {
+		return handleValidateError(err)
+	}
+
+	return outputFileValidation(cmd, val)
+}
+
+func newValidateUBLCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ubl <file>",
+		Short: "Validate a UBL/XML file against Peppol BIS Billing 3.0",
+		Long:  "Validate a UBL/XML invoice file against Peppol BIS Billing 3.0 rules.",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runValidateUBL,
+	}
+}
+
+func runValidateUBL(cmd *cobra.Command, args []string) error {
+	filePath := args[0]
+	if _, err := os.Stat(filePath); err != nil {
+		return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
+	}
+
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	c := client.NewClient(apiKey)
+	val, err := c.ValidateUBL(filePath)
+	if err != nil {
+		return handleValidateError(err)
+	}
+
+	return outputFileValidation(cmd, val)
+}
+
+func outputFileValidation(cmd *cobra.Command, val *client.ValidationResponse) error {
+	r := output.FromContext(cmd.Context())
+
+	if r.IsJSON() {
+		return r.JSON(val)
+	}
+
+	if err := renderFileValidation(r, val); err != nil {
+		return err
+	}
+
+	if !val.IsValid {
+		return &ExitError{Err: fmt.Errorf("validation failed"), Code: 3}
+	}
+	return nil
+}
+
+func renderFileValidation(r *output.Renderer, val *client.ValidationResponse) error {
+	var errorCount, warningCount int
+	for _, issue := range val.Issues {
+		switch issue.Type {
+		case client.IssueTypeError:
+			errorCount++
+		case client.IssueTypeWarning:
+			warningCount++
+		}
+	}
+
+	if val.IsValid {
+		r.Success("Validation: PASSED")
+	} else {
+		r.Error(fmt.Sprintf("Validation: FAILED (%d errors, %d warnings)", errorCount, warningCount))
+	}
+
+	if len(val.Issues) == 0 {
+		return nil
+	}
+
+	fmt.Fprintln(r.Writer())
+	headers := []string{"SEVERITY", "RULE ID", "MESSAGE", "LOCATION"}
+	var rows [][]string
+	for _, issue := range val.Issues {
+		severity := strings.ToUpper(string(issue.Type))
+		ruleID := deref(issue.RuleID, "-")
+		location := deref(issue.Location, "-")
+		rows = append(rows, []string{severity, ruleID, issue.Message, location})
+	}
+	return r.Table(headers, rows)
+}
+
+func handleValidateError(err error) error {
+	if errors.Is(err, client.ErrUnauthorized) {
+		return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+	}
+	return &ExitError{Err: err, Code: 1}
 }
 
 // parseDocumentTypeURN extracts a readable document type and profile from a Peppol document type URN.

@@ -1225,3 +1225,151 @@ func TestGetDocumentUBL_NotFound(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestValidateJSON_Valid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/validate/json" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", ct)
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(ValidationResponse{ID: "val-1", IsValid: true, Issues: []ValidationIssue{}})
+	}))
+	defer srv.Close()
+
+	// Create a temp JSON file.
+	tmpFile := t.TempDir() + "/invoice.json"
+	os.WriteFile(tmpFile, []byte(`{"invoice_id": "INV-001"}`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	val, err := c.ValidateJSON(tmpFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !val.IsValid {
+		t.Error("expected is_valid=true")
+	}
+}
+
+func TestValidateJSON_Invalid(t *testing.T) {
+	ruleID := "BR-07"
+	location := "/Invoice/cac:AccountingCustomerParty"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(ValidationResponse{
+			ID: "val-2", IsValid: false,
+			Issues: []ValidationIssue{
+				{Message: "Missing buyer name", Type: IssueTypeError, RuleID: &ruleID, Location: &location, Schematron: "BR-07"},
+				{Message: "Recommended field missing", Type: IssueTypeWarning, Schematron: "BR-CL-01"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	tmpFile := t.TempDir() + "/invalid.json"
+	os.WriteFile(tmpFile, []byte(`{}`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	val, err := c.ValidateJSON(tmpFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if val.IsValid {
+		t.Error("expected is_valid=false")
+	}
+	if len(val.Issues) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(val.Issues))
+	}
+	if val.Issues[0].Type != IssueTypeError {
+		t.Errorf("expected first issue type 'error', got %q", val.Issues[0].Type)
+	}
+	if val.Issues[1].Type != IssueTypeWarning {
+		t.Errorf("expected second issue type 'warning', got %q", val.Issues[1].Type)
+	}
+}
+
+func TestValidateJSONReader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"test":true}` {
+			t.Errorf("unexpected body: %s", body)
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(ValidationResponse{ID: "val-3", IsValid: true, Issues: []ValidationIssue{}})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	val, err := c.ValidateJSONReader(strings.NewReader(`{"test":true}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !val.IsValid {
+		t.Error("expected is_valid=true")
+	}
+}
+
+func TestValidateUBL_Valid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/validate/ubl" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		ct := r.Header.Get("Content-Type")
+		if !strings.HasPrefix(ct, "multipart/form-data") {
+			t.Errorf("expected multipart/form-data Content-Type, got %s", ct)
+		}
+		// Verify file is present in the multipart form.
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("failed to parse multipart form: %v", err)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("expected file field: %v", err)
+		}
+		defer file.Close()
+		if header.Filename != "invoice.xml" {
+			t.Errorf("expected filename 'invoice.xml', got %q", header.Filename)
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(ValidationResponse{ID: "val-4", IsValid: true, Issues: []ValidationIssue{}})
+	}))
+	defer srv.Close()
+
+	tmpFile := t.TempDir() + "/invoice.xml"
+	os.WriteFile(tmpFile, []byte(`<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"></Invoice>`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	val, err := c.ValidateUBL(tmpFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !val.IsValid {
+		t.Error("expected is_valid=true")
+	}
+}
+
+func TestValidateUBL_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Invalid API key"})
+	}))
+	defer srv.Close()
+
+	tmpFile := t.TempDir() + "/invoice.xml"
+	os.WriteFile(tmpFile, []byte(`<Invoice/>`), 0644)
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.ValidateUBL(tmpFile)
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized, got %v", err)
+	}
+}
