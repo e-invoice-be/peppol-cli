@@ -12,9 +12,10 @@ import (
 
 func newMeCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "me",
-		Short: "Display current tenant account information",
-		RunE:  runMe,
+		Use:     "me",
+		Short:   "Display current tenant account information",
+		Example: "  peppol me\n  peppol me --json",
+		RunE:    runMe,
 	}
 }
 
@@ -24,7 +25,7 @@ func runMe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	tenant, err := c.GetMe()
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {

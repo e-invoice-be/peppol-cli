@@ -10,8 +10,9 @@ import (
 
 func newOutboxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "outbox",
-		Short: "Browse sent documents",
+		Use:     "outbox",
+		Short:   "Browse sent documents",
+		Example: "  peppol outbox list\n  peppol outbox list --json",
 	}
 
 	cmd.AddCommand(newOutboxListCmd())
@@ -26,10 +27,11 @@ var outboxListFlags DocumentListFlags
 
 func newOutboxListCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List sent documents",
-		Args:  cobra.NoArgs,
-		RunE:  runOutboxList,
+		Use:     "list",
+		Short:   "List sent documents",
+		Example: "  peppol outbox list\n  peppol outbox list --receiver 0208:0123456789",
+		Args:    cobra.NoArgs,
+		RunE:    runOutboxList,
 	}
 	outboxListFlags.BindCommonFlags(cmd)
 	outboxListFlags.BindReceiverFlag(cmd)
@@ -45,7 +47,7 @@ func runOutboxList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	result, err := c.ListOutbox(outboxListFlags.ToParams())
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
@@ -63,10 +65,11 @@ var outboxDraftsFlags DocumentListFlags
 
 func newOutboxDraftsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "drafts",
-		Short: "List outbox draft documents",
-		Args:  cobra.NoArgs,
-		RunE:  runOutboxDrafts,
+		Use:     "drafts",
+		Short:   "List outbox draft documents",
+		Example: "  peppol outbox drafts\n  peppol outbox drafts --json",
+		Args:    cobra.NoArgs,
+		RunE:    runOutboxDrafts,
 	}
 	outboxDraftsFlags.BindCommonFlags(cmd)
 	outboxDraftsFlags.BindReceiverFlag(cmd)
@@ -82,7 +85,7 @@ func runOutboxDrafts(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	result, err := c.ListOutboxDrafts(outboxDraftsFlags.ToParams())
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {

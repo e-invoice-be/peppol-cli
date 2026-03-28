@@ -19,9 +19,10 @@ var (
 
 func newStatsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "stats",
-		Short: "Display usage statistics",
-		RunE:  runStats,
+		Use:     "stats",
+		Short:   "Display usage statistics",
+		Example: "  peppol stats\n  peppol stats --from 2024-01-01 --to 2024-12-31\n  peppol stats --aggregation MONTH --json",
+		RunE:    runStats,
 	}
 	cmd.Flags().StringVar(&statsFrom, "from", "", "Start date (yyyy-mm-dd)")
 	cmd.Flags().StringVar(&statsTo, "to", "", "End date (yyyy-mm-dd)")
@@ -35,7 +36,7 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	stats, err := c.GetStats(statsFrom, statsTo, statsAggregation)
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {

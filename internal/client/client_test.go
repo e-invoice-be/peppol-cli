@@ -1,6 +1,8 @@
 package client
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetMe_Success(t *testing.T) {
@@ -1371,5 +1374,74 @@ func TestValidateUBL_Unauthorized(t *testing.T) {
 	_, err := c.ValidateUBL(tmpFile)
 	if !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
+func TestNewClient_DefaultTimeout(t *testing.T) {
+	c := NewClient("key")
+	if c.httpClient.Timeout != 30*time.Second {
+		t.Errorf("expected 30s timeout, got %s", c.httpClient.Timeout)
+	}
+}
+
+func TestNewClient_UserAgent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua := r.Header.Get("User-Agent")
+		if !strings.HasPrefix(ua, "peppol-cli/") {
+			t.Errorf("expected User-Agent starting with 'peppol-cli/', got %q", ua)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(TenantPublic{Name: "Test"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, _ = c.GetMe()
+}
+
+func TestNewClient_Verbose(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(TenantPublic{Name: "Test"})
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	c := NewClient("key", WithBaseURL(srv.URL), WithVerbose(&buf))
+	_, err := c.GetMe()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, ">> GET") {
+		t.Errorf("expected verbose output to contain '>> GET', got %q", output)
+	}
+	if !strings.Contains(output, "<< 200") {
+		t.Errorf("expected verbose output to contain '<< 200', got %q", output)
+	}
+}
+
+func TestClient_WithContext_Cancellation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(TenantPublic{Name: "Test"})
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	c := NewClient("key", WithBaseURL(srv.URL)).WithContext(ctx)
+	_, err := c.GetMe()
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		// The error may be wrapped, check the string as fallback
+		if !strings.Contains(err.Error(), "context canceled") {
+			t.Errorf("expected context canceled error, got %v", err)
+		}
 	}
 }

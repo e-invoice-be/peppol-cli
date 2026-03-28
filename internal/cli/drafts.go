@@ -10,8 +10,9 @@ import (
 
 func newDraftsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "drafts",
-		Short: "Browse draft documents",
+		Use:     "drafts",
+		Short:   "Browse draft documents",
+		Example: "  peppol drafts list\n  peppol drafts list --json",
 	}
 
 	cmd.AddCommand(newDraftsListCmd())
@@ -25,10 +26,11 @@ var draftsListFlags DocumentListFlags
 
 func newDraftsListCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List all draft documents",
-		Args:  cobra.NoArgs,
-		RunE:  runDraftsList,
+		Use:     "list",
+		Short:   "List all draft documents",
+		Example: "  peppol drafts list\n  peppol drafts list --state pending",
+		Args:    cobra.NoArgs,
+		RunE:    runDraftsList,
 	}
 	draftsListFlags.BindCommonFlags(cmd)
 	draftsListFlags.BindStateFlag(cmd)
@@ -44,7 +46,7 @@ func runDraftsList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	result, err := c.ListDrafts(draftsListFlags.ToParams())
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
