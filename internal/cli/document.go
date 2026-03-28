@@ -612,9 +612,12 @@ func runDocumentUBL(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return &ExitError{Err: fmt.Errorf("creating output file: %w", err), Code: 1}
 		}
-		defer f.Close()
 		if _, err := io.Copy(f, resp.Body); err != nil {
+			_ = f.Close()
 			return &ExitError{Err: fmt.Errorf("writing output file: %w", err), Code: 1}
+		}
+		if err := f.Close(); err != nil {
+			return &ExitError{Err: fmt.Errorf("closing output file: %w", err), Code: 1}
 		}
 		r.Success(fmt.Sprintf("UBL XML written to %s", outputPath))
 		return nil
