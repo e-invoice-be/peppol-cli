@@ -272,3 +272,25 @@ func TestIsQuiet(t *testing.T) {
 		t.Error("expected IsQuiet to be true")
 	}
 }
+
+func TestHasColor_ForceColor(t *testing.T) {
+	t.Setenv("FORCE_COLOR", "1")
+	if !hasColor(false, false) {
+		t.Error("expected hasColor to be true when FORCE_COLOR is set")
+	}
+}
+
+func TestHasColor_NoColorWinsOverForceColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("FORCE_COLOR", "1")
+	if hasColor(false, false) {
+		t.Error("expected NO_COLOR to take precedence over FORCE_COLOR")
+	}
+}
+
+func TestHasColor_FlagWinsOverForceColor(t *testing.T) {
+	t.Setenv("FORCE_COLOR", "1")
+	if hasColor(true, false) {
+		t.Error("expected --no-color flag to take precedence over FORCE_COLOR")
+	}
+}

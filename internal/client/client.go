@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
+
+	"github.com/e-invoicebe/peppol-cli/internal/version"
 )
 
 const DefaultBaseURL = "https://api.e-invoice.be"
@@ -48,11 +52,26 @@ func WithHTTPClient(hc *http.Client) ClientOption {
 	return func(c *Client) { c.httpClient = hc }
 }
 
+// WithVerbose enables HTTP request/response logging to the given writer.
+func WithVerbose(w io.Writer) ClientOption {
+	return func(c *Client) { c.verbose = w }
+}
+
 // Client wraps the e-invoice.be API with Bearer token authentication.
 type Client struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+	verbose    io.Writer
+	ctx        context.Context
+}
+
+// WithContext returns a shallow copy of the client with the given context.
+// The context is used for all HTTP requests made by the returned client.
+func (c *Client) WithContext(ctx context.Context) *Client {
+	c2 := *c
+	c2.ctx = ctx
+	return &c2
 }
 
 // NewClient creates a new API client with the given API key.
@@ -60,7 +79,9 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
 		apiKey:  apiKey,
 		baseURL: DefaultBaseURL,
+		ctx:     context.Background(),
 		httpClient: &http.Client{
+			Timeout:   30 * time.Second,
 			Transport: &authTransport{apiKey: apiKey, base: http.DefaultTransport},
 		},
 	}
@@ -71,12 +92,15 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	if c.httpClient.Transport == nil {
 		c.httpClient.Transport = &authTransport{apiKey: c.apiKey, base: http.DefaultTransport}
 	}
+	if c.verbose != nil {
+		c.httpClient.Transport = &verboseTransport{base: c.httpClient.Transport, w: c.verbose}
+	}
 	return c
 }
 
 // GetMe calls GET /api/me/ and returns the tenant info.
 func (c *Client) GetMe() (*TenantPublic, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/me/", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/me/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -115,7 +139,7 @@ func (c *Client) GetMe() (*TenantPublic, error) {
 
 // GetStats calls GET /api/stats and returns usage statistics.
 func (c *Client) GetStats(startDate, endDate, aggregation string) (*StatsResponse, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/stats", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/stats", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -164,7 +188,7 @@ func (c *Client) GetStats(startDate, endDate, aggregation string) (*StatsRespons
 
 // GetDocument calls GET /api/documents/{document_id} and returns the document details.
 func (c *Client) GetDocument(documentID string) (*DocumentResponse, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID, nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/documents/"+documentID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -203,7 +227,7 @@ func (c *Client) GetDocument(documentID string) (*DocumentResponse, error) {
 
 // GetDocumentTimeline calls GET /api/documents/{document_id}/timeline and returns the timeline.
 func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/timeline", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/documents/"+documentID+"/timeline", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -242,7 +266,7 @@ func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, erro
 
 // ListAttachments calls GET /api/documents/{document_id}/attachments and returns the attachments.
 func (c *Client) ListAttachments(documentID string) ([]DocumentAttachment, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/attachments", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/documents/"+documentID+"/attachments", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -281,7 +305,7 @@ func (c *Client) ListAttachments(documentID string) ([]DocumentAttachment, error
 
 // GetAttachment calls GET /api/documents/{document_id}/attachments/{attachment_id}.
 func (c *Client) GetAttachment(documentID, attachmentID string) (*DocumentAttachment, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -341,7 +365,7 @@ func (c *Client) AddAttachment(documentID, filePath string) (*DocumentAttachment
 		return nil, fmt.Errorf("closing multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", c.baseURL+"/api/documents/"+documentID+"/attachments", &buf)
+	req, err := http.NewRequestWithContext(c.ctx,"POST", c.baseURL+"/api/documents/"+documentID+"/attachments", &buf)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -381,7 +405,7 @@ func (c *Client) AddAttachment(documentID, filePath string) (*DocumentAttachment
 
 // DeleteAttachment calls DELETE /api/documents/{document_id}/attachments/{attachment_id}.
 func (c *Client) DeleteAttachment(documentID, attachmentID string) (*DocumentAttachmentDelete, error) {
-	req, err := http.NewRequest("DELETE", c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, nil)
+	req, err := http.NewRequestWithContext(c.ctx,"DELETE", c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -430,7 +454,7 @@ func (c *Client) CreateDocumentJSON(filePath string, constructPDF bool) (*Docume
 		url += "?construct_pdf=true"
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(c.ctx,"POST", url, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -550,7 +574,7 @@ func (c *Client) CreateDocumentFromPDF(filePath, vendorTaxID, customerTaxID stri
 
 // SendDocument sends a document via Peppol.
 func (c *Client) SendDocument(documentID string, opts SendDocumentOptions) (*DocumentResponse, error) {
-	req, err := http.NewRequest("POST", c.baseURL+"/api/documents/"+documentID+"/send", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"POST", c.baseURL+"/api/documents/"+documentID+"/send", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -607,7 +631,7 @@ func (c *Client) SendDocument(documentID string, opts SendDocumentOptions) (*Doc
 
 // ValidateDocument validates a document against Peppol BIS Billing 3.0.
 func (c *Client) ValidateDocument(documentID string) (*ValidationResponse, error) {
-	req, err := http.NewRequest("POST", c.baseURL+"/api/documents/"+documentID+"/validate", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"POST", c.baseURL+"/api/documents/"+documentID+"/validate", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -646,7 +670,7 @@ func (c *Client) ValidateDocument(documentID string) (*ValidationResponse, error
 
 // DeleteDocument calls DELETE /api/documents/{document_id} and returns the result.
 func (c *Client) DeleteDocument(documentID string) (*DocumentDelete, error) {
-	req, err := http.NewRequest("DELETE", c.baseURL+"/api/documents/"+documentID, nil)
+	req, err := http.NewRequestWithContext(c.ctx,"DELETE", c.baseURL+"/api/documents/"+documentID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -685,7 +709,7 @@ func (c *Client) DeleteDocument(documentID string) (*DocumentDelete, error) {
 
 // GetDocumentUBL calls GET /api/documents/{document_id}/ubl and returns the UBL metadata.
 func (c *Client) GetDocumentUBL(documentID string) (*DocumentUBL, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/ubl", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/documents/"+documentID+"/ubl", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -751,7 +775,7 @@ func (c *Client) postMultipartFile(url, filePath string) (*http.Response, error)
 		return nil, fmt.Errorf("closing multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", url, &buf)
+	req, err := http.NewRequestWithContext(c.ctx,"POST", url, &buf)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -776,7 +800,7 @@ type DocumentListParams struct {
 }
 
 func (c *Client) listDocuments(path string, params DocumentListParams) (*PaginatedDocuments, error) {
-	req, err := http.NewRequest("GET", c.baseURL+path, nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -879,7 +903,7 @@ func (c *Client) ListDrafts(params DocumentListParams) (*PaginatedDocuments, err
 
 // LookupPeppolID calls GET /api/lookup and returns Peppol participant information.
 func (c *Client) LookupPeppolID(peppolID string) (*PeppolIdLookupResponse, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/lookup", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/lookup", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -920,7 +944,7 @@ func (c *Client) LookupPeppolID(peppolID string) (*PeppolIdLookupResponse, error
 
 // SearchPeppolParticipants calls GET /api/lookup/participants and returns matching participants.
 func (c *Client) SearchPeppolParticipants(query, countryCode string) (*PeppolSearchResult, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/lookup/participants", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/lookup/participants", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -964,7 +988,7 @@ func (c *Client) SearchPeppolParticipants(query, countryCode string) (*PeppolSea
 
 // ValidatePeppolID calls GET /api/validate/peppol-id and returns validation results.
 func (c *Client) ValidatePeppolID(peppolID string) (*PeppolIdValidationResponse, error) {
-	req, err := http.NewRequest("GET", c.baseURL+"/api/validate/peppol-id", nil)
+	req, err := http.NewRequestWithContext(c.ctx,"GET", c.baseURL+"/api/validate/peppol-id", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -1024,7 +1048,7 @@ func (c *Client) ValidateJSONReader(r io.Reader) (*ValidationResponse, error) {
 }
 
 func (c *Client) validateJSONBody(data []byte) (*ValidationResponse, error) {
-	req, err := http.NewRequest("POST", c.baseURL+"/api/validate/json", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(c.ctx,"POST", c.baseURL+"/api/validate/json", bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -1109,5 +1133,24 @@ type authTransport struct {
 func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req2 := req.Clone(req.Context())
 	req2.Header.Set("Authorization", "Bearer "+t.apiKey)
+	req2.Header.Set("User-Agent", "peppol-cli/"+version.Version)
 	return t.base.RoundTrip(req2)
+}
+
+// verboseTransport logs HTTP method/URL/status/duration to a writer.
+type verboseTransport struct {
+	base http.RoundTripper
+	w    io.Writer
+}
+
+func (t *verboseTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	fmt.Fprintf(t.w, ">> %s %s\n", req.Method, req.URL)
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		fmt.Fprintf(t.w, "<< error: %s (%s)\n", err, time.Since(start).Round(time.Millisecond))
+		return nil, err
+	}
+	fmt.Fprintf(t.w, "<< %d %s (%s)\n", resp.StatusCode, http.StatusText(resp.StatusCode), time.Since(start).Round(time.Millisecond))
+	return resp, nil
 }

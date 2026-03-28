@@ -19,6 +19,7 @@ func newAttachmentCmd() *cobra.Command {
 		Use:     "attachment",
 		Aliases: []string{"att"},
 		Short:   "Manage document attachments",
+		Example: "  peppol document attachment list <document-id>\n  peppol doc att add <document-id> file.pdf",
 	}
 
 	cmd.AddCommand(newAttachmentListCmd())
@@ -31,10 +32,11 @@ func newAttachmentCmd() *cobra.Command {
 
 func newAttachmentListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list <document-id>",
-		Short: "List attachments for a document",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runAttachmentList,
+		Use:     "list <document-id>",
+		Short:   "List attachments for a document",
+		Example: "  peppol document attachment list abc123",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runAttachmentList,
 	}
 }
 
@@ -44,7 +46,7 @@ func runAttachmentList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	attachments, err := c.ListAttachments(args[0])
 	if err != nil {
 		return handleAttachmentError(err)
@@ -75,10 +77,11 @@ func renderAttachmentList(r *output.Renderer, attachments []client.DocumentAttac
 
 func newAttachmentGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get <document-id> <attachment-id>",
-		Short: "Show attachment details or download with --output",
-		Args:  cobra.ExactArgs(2),
-		RunE:  runAttachmentGet,
+		Use:     "get <document-id> <attachment-id>",
+		Short:   "Show attachment details or download with --output",
+		Example: "  peppol document attachment get abc123 att456\n  peppol document attachment get abc123 att456 -o file.pdf",
+		Args:    cobra.ExactArgs(2),
+		RunE:    runAttachmentGet,
 	}
 
 	cmd.Flags().StringP("output", "o", "", "Download attachment to file")
@@ -92,7 +95,7 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	att, err := c.GetAttachment(args[0], args[1])
 	if err != nil {
 		return handleAttachmentError(err)
@@ -147,10 +150,11 @@ func downloadAttachment(att *client.DocumentAttachment, outputPath string) error
 
 func newAttachmentAddCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "add <document-id> <file>",
-		Short: "Upload a file as an attachment",
-		Args:  cobra.ExactArgs(2),
-		RunE:  runAttachmentAdd,
+		Use:     "add <document-id> <file>",
+		Short:   "Upload a file as an attachment",
+		Example: "  peppol document attachment add abc123 invoice.pdf",
+		Args:    cobra.ExactArgs(2),
+		RunE:    runAttachmentAdd,
 	}
 }
 
@@ -165,7 +169,7 @@ func runAttachmentAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	att, err := c.AddAttachment(args[0], filePath)
 	if err != nil {
 		return handleAttachmentError(err)
@@ -183,10 +187,11 @@ func runAttachmentAdd(cmd *cobra.Command, args []string) error {
 
 func newAttachmentDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete <document-id> <attachment-id>",
-		Short: "Delete an attachment",
-		Args:  cobra.ExactArgs(2),
-		RunE:  runAttachmentDelete,
+		Use:     "delete <document-id> <attachment-id>",
+		Short:   "Delete an attachment",
+		Example: "  peppol document attachment delete abc123 att456 --yes",
+		Args:    cobra.ExactArgs(2),
+		RunE:    runAttachmentDelete,
 	}
 
 	cmd.Flags().Bool("yes", false, "Skip confirmation prompt")
@@ -212,7 +217,7 @@ func runAttachmentDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	_, err = c.DeleteAttachment(args[0], args[1])
 	if err != nil {
 		return handleAttachmentError(err)

@@ -13,8 +13,9 @@ import (
 
 func newValidateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "validate",
-		Short: "Validate Peppol resources",
+		Use:     "validate",
+		Short:   "Validate Peppol resources",
+		Example: "  peppol validate peppol-id 0208:0123456789\n  peppol validate json invoice.json",
 	}
 
 	cmd.AddCommand(newValidatePeppolIDCmd())
@@ -26,11 +27,12 @@ func newValidateCmd() *cobra.Command {
 
 func newValidatePeppolIDCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "peppol-id <id>",
-		Short: "Validate a Peppol participant ID",
-		Long:  "Validate a Peppol ID format and check registration status in the Peppol network.",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runValidatePeppolID,
+		Use:     "peppol-id <id>",
+		Short:   "Validate a Peppol participant ID",
+		Long:    "Validate a Peppol ID format and check registration status in the Peppol network.",
+		Example: "  peppol validate peppol-id 0208:0123456789",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runValidatePeppolID,
 	}
 }
 
@@ -40,7 +42,7 @@ func runValidatePeppolID(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	result, err := c.ValidatePeppolID(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
@@ -111,11 +113,12 @@ func renderValidationResult(r *output.Renderer, result *client.PeppolIdValidatio
 
 func newValidateJSONCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "json <file>",
-		Short: "Validate a JSON document against Peppol BIS Billing 3.0",
-		Long:  "Validate a JSON invoice file against Peppol BIS Billing 3.0 rules.\nUse --file - to read from stdin.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runValidateJSON,
+		Use:     "json <file>",
+		Short:   "Validate a JSON document against Peppol BIS Billing 3.0",
+		Long:    "Validate a JSON invoice file against Peppol BIS Billing 3.0 rules.\nUse --file - to read from stdin.",
+		Example: "  peppol validate json invoice.json\n  cat invoice.json | peppol validate json --file -",
+		Args:    cobra.MaximumNArgs(1),
+		RunE:    runValidateJSON,
 	}
 	cmd.Flags().String("file", "", "Read from file path (use - for stdin)")
 	return cmd
@@ -129,7 +132,7 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 
 	var val *client.ValidationResponse
 	switch {
@@ -159,11 +162,12 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 
 func newValidateUBLCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "ubl <file>",
-		Short: "Validate a UBL/XML file against Peppol BIS Billing 3.0",
-		Long:  "Validate a UBL/XML invoice file against Peppol BIS Billing 3.0 rules.",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runValidateUBL,
+		Use:     "ubl <file>",
+		Short:   "Validate a UBL/XML file against Peppol BIS Billing 3.0",
+		Long:    "Validate a UBL/XML invoice file against Peppol BIS Billing 3.0 rules.",
+		Example: "  peppol validate ubl invoice.xml",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runValidateUBL,
 	}
 }
 
@@ -178,7 +182,7 @@ func runValidateUBL(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	val, err := c.ValidateUBL(filePath)
 	if err != nil {
 		return handleValidateError(err)

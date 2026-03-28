@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/e-invoicebe/peppol-cli/internal/client"
 	"github.com/e-invoicebe/peppol-cli/internal/output"
 	"github.com/e-invoicebe/peppol-cli/internal/version"
 	"github.com/spf13/cobra"
@@ -35,9 +39,9 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	cmd.PersistentFlags().BoolVar(&flags.JSON, "json", false, "Output as JSON")
-	cmd.PersistentFlags().BoolVar(&flags.Quiet, "quiet", false, "Suppress non-essential output")
-	cmd.PersistentFlags().BoolVar(&flags.Verbose, "verbose", false, "Enable verbose output")
+	cmd.PersistentFlags().BoolVarP(&flags.JSON, "json", "j", false, "Output as JSON")
+	cmd.PersistentFlags().BoolVarP(&flags.Quiet, "quiet", "q", false, "Suppress non-essential output")
+	cmd.PersistentFlags().BoolVarP(&flags.Verbose, "verbose", "v", false, "Enable verbose output")
 	cmd.PersistentFlags().BoolVar(&flags.NoColor, "no-color", false, "Disable colored output")
 	cmd.PersistentFlags().StringVarP(&flags.Workspace, "workspace", "w", "", "Override active workspace for this command")
 
@@ -59,7 +63,11 @@ func NewRootCmd() *cobra.Command {
 
 // Execute runs the root command and exits with the appropriate code.
 func Execute() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	cmd := NewRootCmd()
+	cmd.SetContext(ctx)
 	if err := cmd.Execute(); err != nil {
 		code := 1
 		if exitErr, ok := err.(*ExitError); ok {
@@ -73,6 +81,15 @@ func Execute() {
 		}
 		os.Exit(code)
 	}
+}
+
+// clientOpts returns common client options based on global flags.
+func clientOpts() []client.ClientOption {
+	var opts []client.ClientOption
+	if flags.Verbose {
+		opts = append(opts, client.WithVerbose(os.Stderr))
+	}
+	return opts
 }
 
 // ExitError wraps an error with a specific exit code.

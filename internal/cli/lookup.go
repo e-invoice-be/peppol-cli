@@ -11,11 +11,12 @@ import (
 
 func newLookupCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "lookup [peppol-id]",
-		Short: "Look up Peppol participants",
-		Long:  "Look up a Peppol participant by ID, or search participants by name.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runLookup,
+		Use:     "lookup [peppol-id]",
+		Short:   "Look up Peppol participants",
+		Long:    "Look up a Peppol participant by ID, or search participants by name.",
+		Example: "  peppol lookup 0208:0123456789\n  peppol lookup search \"Company Name\" --country BE",
+		Args:    cobra.MaximumNArgs(1),
+		RunE:    runLookup,
 	}
 
 	cmd.AddCommand(newLookupSearchCmd())
@@ -33,7 +34,7 @@ func runLookup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	result, err := c.LookupPeppolID(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
@@ -109,10 +110,11 @@ func renderLookupResult(r *output.Renderer, result *client.PeppolIdLookupRespons
 
 func newLookupSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "search <query>",
-		Short: "Search Peppol participants by name",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runLookupSearch,
+		Use:     "search <query>",
+		Short:   "Search Peppol participants by name",
+		Example: "  peppol lookup search \"Company Name\"\n  peppol lookup search \"Company\" --country BE",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runLookupSearch,
 	}
 
 	cmd.Flags().String("country", "", "Filter by country code (e.g. BE, NL)")
@@ -128,7 +130,7 @@ func runLookupSearch(cmd *cobra.Command, args []string) error {
 
 	country, _ := cmd.Flags().GetString("country")
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	result, err := c.SearchPeppolParticipants(args[0], country)
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {

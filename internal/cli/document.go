@@ -19,6 +19,7 @@ func newDocumentCmd() *cobra.Command {
 		Use:     "document",
 		Aliases: []string{"doc"},
 		Short:   "Manage documents",
+		Example: "  peppol document get <id>\n  peppol doc get <id> --json",
 	}
 
 	cmd.AddCommand(newDocumentGetCmd())
@@ -35,10 +36,11 @@ func newDocumentCmd() *cobra.Command {
 
 func newDocumentGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "get <document-id>",
-		Short: "Display document details",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentGet,
+		Use:     "get <document-id>",
+		Short:   "Display document details",
+		Example: "  peppol document get abc123\n  peppol document get abc123 --full --json",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentGet,
 	}
 
 	cmd.Flags().Bool("full", false, "Show full details including line items")
@@ -52,7 +54,7 @@ func runDocumentGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	doc, err := c.GetDocument(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -190,10 +192,11 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 
 func newDocumentTimelineCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "timeline <document-id>",
-		Short: "Display document processing timeline",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentTimeline,
+		Use:     "timeline <document-id>",
+		Short:   "Display document processing timeline",
+		Example: "  peppol document timeline abc123",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentTimeline,
 	}
 }
 
@@ -203,7 +206,7 @@ func runDocumentTimeline(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	timeline, err := c.GetDocumentTimeline(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -261,8 +264,9 @@ func formatEventType(s string) string {
 
 func newDocumentCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "create",
-		Short: "Create a new document",
+		Use:     "create",
+		Short:   "Create a new document",
+		Example: "  peppol document create json invoice.json\n  peppol document create ubl invoice.xml\n  peppol document create pdf invoice.pdf",
 	}
 	cmd.AddCommand(newDocumentCreateJSONCmd())
 	cmd.AddCommand(newDocumentCreateUBLCmd())
@@ -272,10 +276,11 @@ func newDocumentCreateCmd() *cobra.Command {
 
 func newDocumentCreateJSONCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "json <file>",
-		Short: "Create a document from a JSON file",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentCreateJSON,
+		Use:     "json <file>",
+		Short:   "Create a document from a JSON file",
+		Example: "  peppol document create json invoice.json\n  peppol document create json invoice.json --construct-pdf",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentCreateJSON,
 	}
 	cmd.Flags().Bool("construct-pdf", false, "Generate a PDF from the document")
 	return cmd
@@ -293,7 +298,7 @@ func runDocumentCreateJSON(cmd *cobra.Command, args []string) error {
 	}
 
 	constructPDF, _ := cmd.Flags().GetBool("construct-pdf")
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	doc, err := c.CreateDocumentJSON(filePath, constructPDF)
 	if err != nil {
 		return handleDocumentError(err)
@@ -311,10 +316,11 @@ func runDocumentCreateJSON(cmd *cobra.Command, args []string) error {
 
 func newDocumentCreateUBLCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "ubl <file>",
-		Short: "Create a document from a UBL/XML file",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentCreateUBL,
+		Use:     "ubl <file>",
+		Short:   "Create a document from a UBL/XML file",
+		Example: "  peppol document create ubl invoice.xml",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentCreateUBL,
 	}
 }
 
@@ -329,7 +335,7 @@ func runDocumentCreateUBL(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	doc, err := c.CreateDocumentFromUBL(filePath)
 	if err != nil {
 		return handleDocumentError(err)
@@ -347,9 +353,10 @@ func runDocumentCreateUBL(cmd *cobra.Command, args []string) error {
 
 func newDocumentCreatePDFCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pdf <file>",
-		Short: "Create a document from a PDF file",
-		Args:  cobra.ExactArgs(1),
+		Use:     "pdf <file>",
+		Short:   "Create a document from a PDF file",
+		Example: "  peppol document create pdf invoice.pdf",
+		Args:    cobra.ExactArgs(1),
 		RunE:  runDocumentCreatePDF,
 	}
 	cmd.Flags().String("vendor-tax-id", "", "Vendor tax ID (e.g. BE1018265814)")
@@ -371,7 +378,7 @@ func runDocumentCreatePDF(cmd *cobra.Command, args []string) error {
 	vendorTaxID, _ := cmd.Flags().GetString("vendor-tax-id")
 	customerTaxID, _ := cmd.Flags().GetString("customer-tax-id")
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	doc, err := c.CreateDocumentFromPDF(filePath, vendorTaxID, customerTaxID)
 	if err != nil {
 		return handleDocumentError(err)
@@ -395,10 +402,11 @@ func runDocumentCreatePDF(cmd *cobra.Command, args []string) error {
 
 func newDocumentSendCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "send <document-id>",
-		Short: "Send a document via Peppol",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentSend,
+		Use:     "send <document-id>",
+		Short:   "Send a document via Peppol",
+		Example: "  peppol document send abc123",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentSend,
 	}
 	cmd.Flags().String("sender-peppol-id", "", "Override sender Peppol ID")
 	cmd.Flags().String("sender-peppol-scheme", "", "Override sender Peppol scheme")
@@ -421,7 +429,7 @@ func runDocumentSend(cmd *cobra.Command, args []string) error {
 	opts.ReceiverPeppolScheme, _ = cmd.Flags().GetString("receiver-peppol-scheme")
 	opts.Email, _ = cmd.Flags().GetString("email")
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	doc, err := c.SendDocument(args[0], opts)
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -444,10 +452,11 @@ func runDocumentSend(cmd *cobra.Command, args []string) error {
 
 func newDocumentValidateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "validate <document-id>",
-		Short: "Validate a document against Peppol BIS Billing 3.0",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentValidate,
+		Use:     "validate <document-id>",
+		Short:   "Validate a document against Peppol BIS Billing 3.0",
+		Example: "  peppol document validate abc123",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentValidate,
 	}
 }
 
@@ -457,7 +466,7 @@ func runDocumentValidate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	val, err := c.ValidateDocument(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -507,10 +516,11 @@ func handleDocumentError(err error) error {
 
 func newDocumentDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delete <document-id>",
-		Short: "Delete a draft document",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentDelete,
+		Use:     "delete <document-id>",
+		Short:   "Delete a draft document",
+		Example: "  peppol document delete abc123\n  peppol document delete abc123 --yes",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentDelete,
 	}
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 	return cmd
@@ -538,7 +548,7 @@ func runDocumentDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	result, err := c.DeleteDocument(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
@@ -562,10 +572,11 @@ func runDocumentDelete(cmd *cobra.Command, args []string) error {
 
 func newDocumentUBLCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ubl <document-id>",
-		Short: "Download the UBL XML representation of a document",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runDocumentUBL,
+		Use:     "ubl <document-id>",
+		Short:   "Download the UBL XML representation of a document",
+		Example: "  peppol document ubl abc123\n  peppol document ubl abc123 -o invoice.xml",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runDocumentUBL,
 	}
 	cmd.Flags().StringP("output", "o", "", "Write XML to file instead of stdout")
 	return cmd
@@ -577,7 +588,7 @@ func runDocumentUBL(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	ubl, err := c.GetDocumentUBL(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {

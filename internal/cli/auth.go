@@ -16,9 +16,10 @@ const apiSettingsURL = "https://app.e-invoice.be/api-settings"
 
 func newAuthCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "auth",
-		Short: "Authenticate with the e-invoice.be API",
-		RunE:  runAuth,
+		Use:     "auth",
+		Short:   "Authenticate with the e-invoice.be API",
+		Example: "  peppol auth",
+		RunE:    runAuth,
 	}
 
 	cmd.AddCommand(newAuthStatusCmd())
@@ -50,7 +51,7 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	if !flags.Quiet {
 		fmt.Fprint(w, "Validating...")
 	}
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	tenant, err := c.GetMe()
 	if err != nil {
 		fmt.Fprintln(w)
@@ -93,9 +94,10 @@ func runAuth(cmd *cobra.Command, args []string) error {
 
 func newAuthStatusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
-		Short: "Show current authentication status",
-		RunE:  runAuthStatus,
+		Use:     "status",
+		Short:   "Show current authentication status",
+		Example: "  peppol auth status",
+		RunE:    runAuthStatus,
 	}
 }
 
@@ -141,9 +143,10 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 
 func newAuthLogoutCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "logout",
-		Short: "Remove stored credentials",
-		RunE:  runAuthLogout,
+		Use:     "logout",
+		Short:   "Remove stored credentials",
+		Example: "  peppol auth logout\n  peppol auth logout -w production",
+		RunE:    runAuthLogout,
 	}
 }
 

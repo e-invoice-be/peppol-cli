@@ -6,8 +6,9 @@ import (
 
 func newCompletionCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "completion [bash|zsh|fish|powershell]",
-		Short: "Generate shell completion scripts",
+		Use:     "completion [bash|zsh|fish|powershell]",
+		Short:   "Generate shell completion scripts",
+		Example: "  peppol completion bash\n  peppol completion zsh > \"${fpath[1]}/_peppol\"",
 		Long: `Generate shell completion scripts for peppol.
 
 To load completions:
@@ -44,33 +45,37 @@ PowerShell:
 
 	cmd.AddCommand(
 		&cobra.Command{
-			Use:   "bash",
-			Short: "Generate bash completion script",
-			Args:  cobra.NoArgs,
+			Use:     "bash",
+			Short:   "Generate bash completion script",
+			Example: "  source <(peppol completion bash)",
+			Args:    cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return cmd.Root().GenBashCompletionV2(cmd.OutOrStdout(), true)
 			},
 		},
 		&cobra.Command{
-			Use:   "zsh",
-			Short: "Generate zsh completion script",
-			Args:  cobra.NoArgs,
+			Use:     "zsh",
+			Short:   "Generate zsh completion script",
+			Example: "  source <(peppol completion zsh)",
+			Args:    cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return cmd.Root().GenZshCompletion(cmd.OutOrStdout())
 			},
 		},
 		&cobra.Command{
-			Use:   "fish",
-			Short: "Generate fish completion script",
-			Args:  cobra.NoArgs,
+			Use:     "fish",
+			Short:   "Generate fish completion script",
+			Example: "  peppol completion fish | source",
+			Args:    cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return cmd.Root().GenFishCompletion(cmd.OutOrStdout(), true)
 			},
 		},
 		&cobra.Command{
-			Use:   "powershell",
-			Short: "Generate powershell completion script",
-			Args:  cobra.NoArgs,
+			Use:     "powershell",
+			Short:   "Generate powershell completion script",
+			Example: "  peppol completion powershell | Out-String | Invoke-Expression",
+			Args:    cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return cmd.Root().GenPowerShellCompletionWithDesc(cmd.OutOrStdout())
 			},

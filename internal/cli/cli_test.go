@@ -1980,3 +1980,56 @@ func TestRenderFileValidation_Failed(t *testing.T) {
 		}
 	}
 }
+
+func TestShortFlags(t *testing.T) {
+	tests := []struct {
+		flag  string
+		check func() bool
+	}{
+		{"-j", func() bool { return flags.JSON }},
+		{"-q", func() bool { return flags.Quiet }},
+		{"-v", func() bool { return flags.Verbose }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.flag, func(t *testing.T) {
+			// Reset flags
+			flags = GlobalFlags{}
+
+			cmd := NewRootCmd()
+			cmd.SetArgs([]string{tt.flag, "--help"})
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			_ = cmd.Execute()
+
+			if !tt.check() {
+				t.Errorf("expected flag %s to be set", tt.flag)
+			}
+		})
+	}
+}
+
+func TestAllCommandsHaveExamples(t *testing.T) {
+	cmd := NewRootCmd()
+
+	var check func(cmd *cobra.Command)
+	check = func(cmd *cobra.Command) {
+		// Skip root and help commands
+		if cmd.Name() == "peppol" || cmd.Name() == "help" {
+			for _, sub := range cmd.Commands() {
+				check(sub)
+			}
+			return
+		}
+
+		// All non-help commands should have examples
+		if cmd.Example == "" {
+			t.Errorf("command %q is missing Example field", cmd.CommandPath())
+		}
+
+		for _, sub := range cmd.Commands() {
+			check(sub)
+		}
+	}
+	check(cmd)
+}

@@ -17,6 +17,7 @@ func newWorkspaceCmd() *cobra.Command {
 		Use:     "workspace",
 		Aliases: []string{"ws"},
 		Short:   "Manage workspaces",
+		Example: "  peppol workspace list\n  peppol ws add production",
 	}
 
 	cmd.AddCommand(newWorkspaceAddCmd())
@@ -29,10 +30,11 @@ func newWorkspaceCmd() *cobra.Command {
 
 func newWorkspaceAddCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "add <name>",
-		Short: "Add a new workspace",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runWorkspaceAdd,
+		Use:     "add <name>",
+		Short:   "Add a new workspace",
+		Example: "  peppol workspace add production",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runWorkspaceAdd,
 	}
 }
 
@@ -67,7 +69,7 @@ func runWorkspaceAdd(cmd *cobra.Command, args []string) error {
 	if !flags.Quiet {
 		fmt.Fprint(w, "Validating...")
 	}
-	c := client.NewClient(apiKey)
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 	tenant, err := c.GetMe()
 	if err != nil {
 		fmt.Fprintln(w)
@@ -97,10 +99,11 @@ func runWorkspaceAdd(cmd *cobra.Command, args []string) error {
 
 func newWorkspaceListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List all workspaces",
-		Args:  cobra.NoArgs,
-		RunE:  runWorkspaceList,
+		Use:     "list",
+		Short:   "List all workspaces",
+		Example: "  peppol workspace list\n  peppol workspace list --json",
+		Args:    cobra.NoArgs,
+		RunE:    runWorkspaceList,
 	}
 }
 
@@ -151,10 +154,11 @@ func runWorkspaceList(cmd *cobra.Command, args []string) error {
 
 func newWorkspaceUseCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "use <name>",
-		Short: "Switch active workspace",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runWorkspaceUse,
+		Use:     "use <name>",
+		Short:   "Switch active workspace",
+		Example: "  peppol workspace use production",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runWorkspaceUse,
 	}
 }
 
@@ -181,10 +185,11 @@ func runWorkspaceUse(cmd *cobra.Command, args []string) error {
 
 func newWorkspaceRemoveCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove <name>",
-		Short: "Remove a workspace",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runWorkspaceRemove,
+		Use:     "remove <name>",
+		Short:   "Remove a workspace",
+		Example: "  peppol workspace remove staging",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runWorkspaceRemove,
 	}
 }
 
