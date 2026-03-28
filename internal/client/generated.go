@@ -384,6 +384,24 @@ type DocumentCreateFromPdfResponse struct {
 	UBLDocument *string `json:"ubl_document,omitempty"`
 }
 
+// DocumentDelete represents the response from DELETE /api/documents/{id}.
+type DocumentDelete struct {
+	IsDeleted bool `json:"is_deleted"`
+}
+
+// DocumentUBL represents the response from GET /api/documents/{id}/ubl.
+type DocumentUBL struct {
+	FileName             string  `json:"file_name"`
+	FileSize             int     `json:"file_size"`
+	SignedURL            *string `json:"signed_url,omitempty"`
+	SenderPeppolID       *string `json:"sender_peppol_id,omitempty"`
+	SenderPeppolScheme   *string `json:"sender_peppol_scheme,omitempty"`
+	ReceiverPeppolID     *string `json:"receiver_peppol_id,omitempty"`
+	ReceiverPeppolScheme *string `json:"receiver_peppol_scheme,omitempty"`
+	FileHash             *string `json:"file_hash,omitempty"`
+	ValidatedAt          *string `json:"validated_at,omitempty"`
+}
+
 // SendDocumentOptions holds optional query parameters for the send endpoint.
 type SendDocumentOptions struct {
 	SenderPeppolScheme   string

@@ -642,6 +642,84 @@ func (c *Client) ValidateDocument(documentID string) (*ValidationResponse, error
 	}
 }
 
+// DeleteDocument calls DELETE /api/documents/{document_id} and returns the result.
+func (c *Client) DeleteDocument(documentID string) (*DocumentDelete, error) {
+	req, err := http.NewRequest("DELETE", c.baseURL+"/api/documents/"+documentID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result DocumentDelete
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// GetDocumentUBL calls GET /api/documents/{document_id}/ubl and returns the UBL metadata.
+func (c *Client) GetDocumentUBL(documentID string) (*DocumentUBL, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api/documents/"+documentID+"/ubl", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var ubl DocumentUBL
+		if err := json.Unmarshal(body, &ubl); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &ubl, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
 // postMultipartFile sends a file as multipart/form-data POST request.
 func (c *Client) postMultipartFile(url, filePath string) (*http.Response, error) {
 	f, err := os.Open(filePath)
