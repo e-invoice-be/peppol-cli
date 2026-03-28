@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -730,7 +732,15 @@ func (c *Client) postMultipartFile(url, filePath string) (*http.Response, error)
 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	part, err := w.CreateFormFile("file", filepath.Base(filePath))
+	filename := filepath.Base(filePath)
+	contentType := mime.TypeByExtension(filepath.Ext(filePath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+	h.Set("Content-Type", contentType)
+	part, err := w.CreatePart(h)
 	if err != nil {
 		return nil, fmt.Errorf("creating form file: %w", err)
 	}
@@ -981,6 +991,95 @@ func (c *Client) ValidatePeppolID(peppolID string) (*PeppolIdValidationResponse,
 			return nil, fmt.Errorf("parsing response: %w", err)
 		}
 		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// ValidateJSON validates a JSON document file against Peppol BIS Billing 3.0.
+func (c *Client) ValidateJSON(filePath string) (*ValidationResponse, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading file: %w", err)
+	}
+
+	return c.validateJSONBody(data)
+}
+
+// ValidateJSONReader validates a JSON document from a reader against Peppol BIS Billing 3.0.
+func (c *Client) ValidateJSONReader(r io.Reader) (*ValidationResponse, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
+
+	return c.validateJSONBody(data)
+}
+
+func (c *Client) validateJSONBody(data []byte) (*ValidationResponse, error) {
+	req, err := http.NewRequest("POST", c.baseURL+"/api/validate/json", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusOK:
+		var val ValidationResponse
+		if err := json.Unmarshal(body, &val); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &val, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		var errResp ErrorResponse
+		if json.Unmarshal(body, &errResp) == nil {
+			apiErr.Detail = errResp.Detail
+		}
+		return nil, apiErr
+	}
+}
+
+// ValidateUBL validates a UBL/XML file against Peppol BIS Billing 3.0.
+func (c *Client) ValidateUBL(filePath string) (*ValidationResponse, error) {
+	resp, err := c.postMultipartFile(c.baseURL+"/api/validate/ubl", filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusCreated, http.StatusOK:
+		var val ValidationResponse
+		if err := json.Unmarshal(body, &val); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &val, nil
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:

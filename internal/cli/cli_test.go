@@ -1905,3 +1905,78 @@ func TestDocumentUBLCmd_JSONMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateJSONCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"validate", "json", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Peppol BIS") {
+		t.Errorf("validate json help missing Peppol BIS description\nGot:\n%s", out)
+	}
+	if !strings.Contains(out, "stdin") {
+		t.Errorf("validate json help missing stdin mention\nGot:\n%s", out)
+	}
+}
+
+func TestValidateUBLCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"validate", "ubl", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "UBL/XML") {
+		t.Errorf("validate ubl help missing UBL/XML description\nGot:\n%s", out)
+	}
+}
+
+func TestRenderFileValidation_Passed(t *testing.T) {
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	val := &client.ValidationResponse{ID: "val-1", IsValid: true, Issues: []client.ValidationIssue{}}
+	if err := renderFileValidation(r, val); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Validation: PASSED") {
+		t.Errorf("expected 'Validation: PASSED' in output\nGot:\n%s", out)
+	}
+}
+
+func TestRenderFileValidation_Failed(t *testing.T) {
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	ruleID := "BR-07"
+	location := "/Invoice/cac:AccountingCustomerParty"
+	val := &client.ValidationResponse{
+		ID: "val-2", IsValid: false,
+		Issues: []client.ValidationIssue{
+			{Message: "Missing buyer name", Type: client.IssueTypeError, RuleID: &ruleID, Location: &location, Schematron: "BR-07"},
+			{Message: "Recommended field", Type: client.IssueTypeWarning, Schematron: "BR-CL-01"},
+		},
+	}
+	if err := renderFileValidation(r, val); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Validation: FAILED (1 errors, 1 warnings)",
+		"Missing buyer name",
+		"BR-07",
+		"ERROR",
+		"WARNING",
+		"Recommended field",
+		"/Invoice/cac:AccountingCustomerParty",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
