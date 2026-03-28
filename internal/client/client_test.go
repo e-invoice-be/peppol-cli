@@ -1122,3 +1122,106 @@ func TestValidateDocument_Invalid(t *testing.T) {
 		t.Errorf("expected schematron 'BR-07', got %q", val.Issues[0].Schematron)
 	}
 }
+
+func TestDeleteDocument_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/documents/doc-123" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(DocumentDelete{IsDeleted: true})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	result, err := c.DeleteDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsDeleted {
+		t.Error("expected is_deleted=true")
+	}
+}
+
+func TestDeleteDocument_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Document not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.DeleteDocument("doc-999")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteDocument_BadState(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Document not in draft state"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.DeleteDocument("doc-123")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %v", err)
+	}
+	if apiErr.StatusCode != 400 {
+		t.Errorf("expected status 400, got %d", apiErr.StatusCode)
+	}
+	if apiErr.Detail != "Document not in draft state" {
+		t.Errorf("expected detail about draft state, got %q", apiErr.Detail)
+	}
+}
+
+func TestGetDocumentUBL_Success(t *testing.T) {
+	signedURL := "https://storage.example.com/ubl.xml"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/documents/doc-123/ubl" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(DocumentUBL{
+			FileName:  "invoice.xml",
+			FileSize:  4096,
+			SignedURL: &signedURL,
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	ubl, err := c.GetDocumentUBL("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ubl.FileName != "invoice.xml" {
+		t.Errorf("expected file_name 'invoice.xml', got %q", ubl.FileName)
+	}
+	if ubl.FileSize != 4096 {
+		t.Errorf("expected file_size 4096, got %d", ubl.FileSize)
+	}
+	if ubl.SignedURL == nil || *ubl.SignedURL != signedURL {
+		t.Error("expected signed_url to match")
+	}
+}
+
+func TestGetDocumentUBL_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Document not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.GetDocumentUBL("doc-999")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}

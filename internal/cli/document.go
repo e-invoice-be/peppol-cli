@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -24,6 +27,8 @@ func newDocumentCmd() *cobra.Command {
 	cmd.AddCommand(newDocumentCreateCmd())
 	cmd.AddCommand(newDocumentSendCmd())
 	cmd.AddCommand(newDocumentValidateCmd())
+	cmd.AddCommand(newDocumentDeleteCmd())
+	cmd.AddCommand(newDocumentUBLCmd())
 
 	return cmd
 }
@@ -496,4 +501,128 @@ func handleDocumentError(err error) error {
 		return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
 	}
 	return &ExitError{Err: err, Code: 1}
+}
+
+// --- Delete command ---
+
+func newDocumentDeleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete <document-id>",
+		Short: "Delete a draft document",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDocumentDelete,
+	}
+	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	return cmd
+}
+
+func runDocumentDelete(cmd *cobra.Command, args []string) error {
+	yes, _ := cmd.Flags().GetBool("yes")
+	if !yes {
+		fmt.Fprintf(cmd.OutOrStdout(), "Delete document %s? [y/N] ", args[0])
+		scanner := bufio.NewScanner(cmd.InOrStdin())
+		if scanner.Scan() {
+			answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+			if answer != "y" && answer != "yes" {
+				fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+				return nil
+			}
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
+			return nil
+		}
+	}
+
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	c := client.NewClient(apiKey)
+	result, err := c.DeleteDocument(args[0])
+	if err != nil {
+		if errors.Is(err, client.ErrNotFound) {
+			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+		}
+		return handleDocumentError(err)
+	}
+
+	r := output.FromContext(cmd.Context())
+	if r.IsJSON() {
+		return r.JSON(result)
+	}
+
+	if result.IsDeleted {
+		r.Success("Document deleted.")
+	}
+	return nil
+}
+
+// --- UBL download command ---
+
+func newDocumentUBLCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ubl <document-id>",
+		Short: "Download the UBL XML representation of a document",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDocumentUBL,
+	}
+	cmd.Flags().StringP("output", "o", "", "Write XML to file instead of stdout")
+	return cmd
+}
+
+func runDocumentUBL(cmd *cobra.Command, args []string) error {
+	apiKey, err := resolveKey()
+	if err != nil {
+		return err
+	}
+
+	c := client.NewClient(apiKey)
+	ubl, err := c.GetDocumentUBL(args[0])
+	if err != nil {
+		if errors.Is(err, client.ErrNotFound) {
+			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+		}
+		return handleDocumentError(err)
+	}
+
+	r := output.FromContext(cmd.Context())
+	if r.IsJSON() {
+		return r.JSON(ubl)
+	}
+
+	if ubl.SignedURL == nil {
+		return &ExitError{Err: fmt.Errorf("no UBL file available for this document"), Code: 1}
+	}
+
+	// Stream the UBL XML from the signed URL
+	resp, err := http.Get(*ubl.SignedURL)
+	if err != nil {
+		return &ExitError{Err: fmt.Errorf("downloading UBL: %w", err), Code: 1}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return &ExitError{Err: fmt.Errorf("downloading UBL: HTTP %d", resp.StatusCode), Code: 1}
+	}
+
+	outputPath, _ := cmd.Flags().GetString("output")
+	if outputPath != "" {
+		f, err := os.Create(outputPath)
+		if err != nil {
+			return &ExitError{Err: fmt.Errorf("creating output file: %w", err), Code: 1}
+		}
+		defer f.Close()
+		if _, err := io.Copy(f, resp.Body); err != nil {
+			return &ExitError{Err: fmt.Errorf("writing output file: %w", err), Code: 1}
+		}
+		r.Success(fmt.Sprintf("UBL XML written to %s", outputPath))
+		return nil
+	}
+
+	_, err = io.Copy(cmd.OutOrStdout(), resp.Body)
+	if err != nil {
+		return &ExitError{Err: fmt.Errorf("writing output: %w", err), Code: 1}
+	}
+	return nil
 }

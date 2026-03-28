@@ -1764,3 +1764,144 @@ func TestRenderValidation_Invalid(t *testing.T) {
 		}
 	}
 }
+
+func TestDocumentDeleteCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "delete", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"--yes", "-y", "Skip confirmation"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("delete help missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentDeleteCmd_WithYes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(client.DocumentDelete{IsDeleted: true})
+	}))
+	defer srv.Close()
+
+	c := client.NewClient("test-key", client.WithBaseURL(srv.URL))
+	result, err := c.DeleteDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsDeleted {
+		t.Error("expected is_deleted=true")
+	}
+}
+
+func TestDocumentDeleteCmd_ConfirmNo(t *testing.T) {
+	buf := new(bytes.Buffer)
+	cmd := NewRootCmd()
+	cmd.SetOut(buf)
+	cmd.SetIn(strings.NewReader("n\n"))
+	t.Setenv("PEPPOL_API_KEY", "test-key")
+	cmd.SetArgs([]string{"document", "delete", "doc-123"})
+	_ = cmd.Execute()
+	out := buf.String()
+	if !strings.Contains(out, "Aborted") {
+		t.Errorf("expected 'Aborted' in output\nGot:\n%s", out)
+	}
+}
+
+func TestDocumentDeleteCmd_JSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(client.DocumentDelete{IsDeleted: true})
+	}))
+	defer srv.Close()
+
+	c := client.NewClient("test-key", client.WithBaseURL(srv.URL))
+	result, err := c.DeleteDocument("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("JSON marshal error: %v", err)
+	}
+	if !strings.Contains(string(data), `"is_deleted":true`) {
+		t.Errorf("expected is_deleted in JSON\nGot:\n%s", string(data))
+	}
+}
+
+func TestDocumentUBLCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "ubl", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"--output", "-o", "UBL XML"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ubl help missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentUBLCmd_Stdout(t *testing.T) {
+	xmlContent := `<?xml version="1.0"?><Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"></Invoice>`
+
+	// Serve the UBL XML from a "signed URL" server
+	xmlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.Write([]byte(xmlContent))
+	}))
+	defer xmlSrv.Close()
+
+	signedURL := xmlSrv.URL + "/ubl.xml"
+
+	// API server returns UBL metadata with signed URL
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(client.DocumentUBL{
+			FileName:  "invoice.xml",
+			FileSize:  len(xmlContent),
+			SignedURL: &signedURL,
+		})
+	}))
+	defer apiSrv.Close()
+
+	c := client.NewClient("test-key", client.WithBaseURL(apiSrv.URL))
+	ubl, err := c.GetDocumentUBL("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ubl.FileName != "invoice.xml" {
+		t.Errorf("expected file_name 'invoice.xml', got %q", ubl.FileName)
+	}
+	if ubl.SignedURL == nil {
+		t.Fatal("expected signed_url to be set")
+	}
+}
+
+func TestDocumentUBLCmd_JSONMetadata(t *testing.T) {
+	signedURL := "https://storage.example.com/ubl.xml"
+	ubl := client.DocumentUBL{
+		FileName:  "invoice.xml",
+		FileSize:  4096,
+		SignedURL: &signedURL,
+	}
+	data, err := json.Marshal(ubl)
+	if err != nil {
+		t.Fatalf("JSON marshal error: %v", err)
+	}
+	for _, want := range []string{`"file_name":"invoice.xml"`, `"file_size":4096`, `"signed_url"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("JSON missing %q\nGot:\n%s", want, string(data))
+		}
+	}
+}
