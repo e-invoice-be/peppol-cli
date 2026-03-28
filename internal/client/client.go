@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -730,7 +732,15 @@ func (c *Client) postMultipartFile(url, filePath string) (*http.Response, error)
 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
-	part, err := w.CreateFormFile("file", filepath.Base(filePath))
+	filename := filepath.Base(filePath)
+	contentType := mime.TypeByExtension(filepath.Ext(filePath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+	h.Set("Content-Type", contentType)
+	part, err := w.CreatePart(h)
 	if err != nil {
 		return nil, fmt.Errorf("creating form file: %w", err)
 	}
