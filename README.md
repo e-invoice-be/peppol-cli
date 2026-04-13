@@ -8,7 +8,7 @@ CLI for the [e-invoice.be](https://e-invoice.be) Peppol Access Point API.
 
 ```bash
 brew tap e-invoice-be/tap
-brew install peppol
+brew install e-invoice-be/tap/peppol-cli
 ```
 
 ### Go install
