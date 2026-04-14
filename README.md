@@ -6,7 +6,7 @@ CLI for the [e-invoice.be](https://e-invoice.be) Peppol Access Point API.
 
 [![Release](https://img.shields.io/github/v/release/e-invoice-be/peppol-cli)](https://github.com/e-invoice-be/peppol-cli/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/e-invoicebe/peppol-cli)](https://goreportcard.com/report/github.com/e-invoicebe/peppol-cli)
+[![Go Report Card](https://goreportcard.com/badge/github.com/e-invoice-be/peppol-cli)](https://goreportcard.com/report/github.com/e-invoice-be/peppol-cli)
 
 ## Quick Start
 
