@@ -10,8 +10,8 @@ import (
 
 func newInboxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "inbox",
-		Short: "Browse received documents",
+		Use:     "inbox",
+		Short:   "Browse received documents",
 		Example: "  peppol inbox list\n  peppol inbox invoices --json",
 	}
 

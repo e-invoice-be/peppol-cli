@@ -1465,7 +1465,6 @@ func TestParseDocumentTypeURN(t *testing.T) {
 	}
 }
 
-
 func TestRootCmd_WorkspaceFlag(t *testing.T) {
 	cmd := NewRootCmd()
 	buf := new(bytes.Buffer)

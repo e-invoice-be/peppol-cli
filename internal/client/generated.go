@@ -62,10 +62,10 @@ type ActionStats struct {
 type DocumentType string
 
 const (
-	DocumentTypeInvoice              DocumentType = "INVOICE"
-	DocumentTypeCreditNote           DocumentType = "CREDIT_NOTE"
-	DocumentTypeDebitNote            DocumentType = "DEBIT_NOTE"
-	DocumentTypeSelfbillingInvoice   DocumentType = "SELFBILLING_INVOICE"
+	DocumentTypeInvoice               DocumentType = "INVOICE"
+	DocumentTypeCreditNote            DocumentType = "CREDIT_NOTE"
+	DocumentTypeDebitNote             DocumentType = "DEBIT_NOTE"
+	DocumentTypeSelfbillingInvoice    DocumentType = "SELFBILLING_INVOICE"
 	DocumentTypeSelfbillingCreditNote DocumentType = "SELFBILLING_CREDIT_NOTE"
 )
 
@@ -105,56 +105,56 @@ const (
 
 // DocumentResponse represents the response from GET /api/documents/{document_id}.
 type DocumentResponse struct {
-	ID                        string            `json:"id"`
-	CreatedAt                 time.Time         `json:"created_at"`
-	DocumentType              DocumentType      `json:"document_type,omitempty"`
-	State                     DocumentState     `json:"state,omitempty"`
-	Direction                 DocumentDirection `json:"direction,omitempty"`
-	CustomerName              *string           `json:"customer_name,omitempty"`
-	CustomerID                *string           `json:"customer_id,omitempty"`
-	CustomerEmail             *string           `json:"customer_email,omitempty"`
-	CustomerTaxID             *string           `json:"customer_tax_id,omitempty"`
-	CustomerCompanyID         *string           `json:"customer_company_id,omitempty"`
-	CustomerPeppolID          *string           `json:"customer_peppol_id,omitempty"`
-	CustomerAddress           *string           `json:"customer_address,omitempty"`
-	CustomerAddressRecipient  *string           `json:"customer_address_recipient,omitempty"`
-	VendorName                *string           `json:"vendor_name,omitempty"`
-	VendorEmail               *string           `json:"vendor_email,omitempty"`
-	VendorAddress             *string           `json:"vendor_address,omitempty"`
-	VendorAddressRecipient    *string           `json:"vendor_address_recipient,omitempty"`
-	VendorTaxID               *string           `json:"vendor_tax_id,omitempty"`
-	VendorCompanyID           *string           `json:"vendor_company_id,omitempty"`
-	PurchaseOrder             *string           `json:"purchase_order,omitempty"`
-	InvoiceID                 *string           `json:"invoice_id,omitempty"`
-	InvoiceDate               *string           `json:"invoice_date,omitempty"`
-	DueDate                   *string           `json:"due_date,omitempty"`
-	BillingAddress            *string           `json:"billing_address,omitempty"`
-	BillingAddressRecipient   *string           `json:"billing_address_recipient,omitempty"`
-	ShippingAddress           *string           `json:"shipping_address,omitempty"`
-	ShippingAddressRecipient  *string           `json:"shipping_address_recipient,omitempty"`
-	RemittanceAddress         *string           `json:"remittance_address,omitempty"`
-	RemittanceAddressRecipient *string          `json:"remittance_address_recipient,omitempty"`
-	ServiceAddress            *string           `json:"service_address,omitempty"`
-	ServiceAddressRecipient   *string           `json:"service_address_recipient,omitempty"`
-	ServiceStartDate          *string           `json:"service_start_date,omitempty"`
-	ServiceEndDate            *string           `json:"service_end_date,omitempty"`
-	Currency                  string            `json:"currency,omitempty"`
-	TaxCode                   *string           `json:"tax_code,omitempty"`
-	Vatex                     *string           `json:"vatex,omitempty"`
-	VatexNote                 *string           `json:"vatex_note,omitempty"`
-	Subtotal                  *string           `json:"subtotal,omitempty"`
-	TotalDiscount             *string           `json:"total_discount,omitempty"`
-	TotalTax                  *string           `json:"total_tax,omitempty"`
-	InvoiceTotal              *string           `json:"invoice_total,omitempty"`
-	AmountDue                 *string           `json:"amount_due,omitempty"`
-	Note                      *string           `json:"note,omitempty"`
-	PaymentTerm               *string           `json:"payment_term,omitempty"`
-	PaymentDetails            []PaymentDetail   `json:"payment_details,omitempty"`
-	TaxDetails                json.RawMessage   `json:"tax_details,omitempty"`
-	Items                     []LineItem        `json:"items,omitempty"`
-	Attachments               json.RawMessage   `json:"attachments,omitempty"`
-	Allowances                json.RawMessage   `json:"allowances,omitempty"`
-	Charges                   json.RawMessage   `json:"charges,omitempty"`
+	ID                         string            `json:"id"`
+	CreatedAt                  time.Time         `json:"created_at"`
+	DocumentType               DocumentType      `json:"document_type,omitempty"`
+	State                      DocumentState     `json:"state,omitempty"`
+	Direction                  DocumentDirection `json:"direction,omitempty"`
+	CustomerName               *string           `json:"customer_name,omitempty"`
+	CustomerID                 *string           `json:"customer_id,omitempty"`
+	CustomerEmail              *string           `json:"customer_email,omitempty"`
+	CustomerTaxID              *string           `json:"customer_tax_id,omitempty"`
+	CustomerCompanyID          *string           `json:"customer_company_id,omitempty"`
+	CustomerPeppolID           *string           `json:"customer_peppol_id,omitempty"`
+	CustomerAddress            *string           `json:"customer_address,omitempty"`
+	CustomerAddressRecipient   *string           `json:"customer_address_recipient,omitempty"`
+	VendorName                 *string           `json:"vendor_name,omitempty"`
+	VendorEmail                *string           `json:"vendor_email,omitempty"`
+	VendorAddress              *string           `json:"vendor_address,omitempty"`
+	VendorAddressRecipient     *string           `json:"vendor_address_recipient,omitempty"`
+	VendorTaxID                *string           `json:"vendor_tax_id,omitempty"`
+	VendorCompanyID            *string           `json:"vendor_company_id,omitempty"`
+	PurchaseOrder              *string           `json:"purchase_order,omitempty"`
+	InvoiceID                  *string           `json:"invoice_id,omitempty"`
+	InvoiceDate                *string           `json:"invoice_date,omitempty"`
+	DueDate                    *string           `json:"due_date,omitempty"`
+	BillingAddress             *string           `json:"billing_address,omitempty"`
+	BillingAddressRecipient    *string           `json:"billing_address_recipient,omitempty"`
+	ShippingAddress            *string           `json:"shipping_address,omitempty"`
+	ShippingAddressRecipient   *string           `json:"shipping_address_recipient,omitempty"`
+	RemittanceAddress          *string           `json:"remittance_address,omitempty"`
+	RemittanceAddressRecipient *string           `json:"remittance_address_recipient,omitempty"`
+	ServiceAddress             *string           `json:"service_address,omitempty"`
+	ServiceAddressRecipient    *string           `json:"service_address_recipient,omitempty"`
+	ServiceStartDate           *string           `json:"service_start_date,omitempty"`
+	ServiceEndDate             *string           `json:"service_end_date,omitempty"`
+	Currency                   string            `json:"currency,omitempty"`
+	TaxCode                    *string           `json:"tax_code,omitempty"`
+	Vatex                      *string           `json:"vatex,omitempty"`
+	VatexNote                  *string           `json:"vatex_note,omitempty"`
+	Subtotal                   *string           `json:"subtotal,omitempty"`
+	TotalDiscount              *string           `json:"total_discount,omitempty"`
+	TotalTax                   *string           `json:"total_tax,omitempty"`
+	InvoiceTotal               *string           `json:"invoice_total,omitempty"`
+	AmountDue                  *string           `json:"amount_due,omitempty"`
+	Note                       *string           `json:"note,omitempty"`
+	PaymentTerm                *string           `json:"payment_term,omitempty"`
+	PaymentDetails             []PaymentDetail   `json:"payment_details,omitempty"`
+	TaxDetails                 json.RawMessage   `json:"tax_details,omitempty"`
+	Items                      []LineItem        `json:"items,omitempty"`
+	Attachments                json.RawMessage   `json:"attachments,omitempty"`
+	Allowances                 json.RawMessage   `json:"allowances,omitempty"`
+	Charges                    json.RawMessage   `json:"charges,omitempty"`
 }
 
 // LineItem represents a single line item in a document.
@@ -172,10 +172,10 @@ type LineItem struct {
 
 // PaymentDetail represents payment information for a document.
 type PaymentDetail struct {
-	IBAN             *string `json:"iban,omitempty"`
-	SWIFT            *string `json:"swift,omitempty"`
+	IBAN              *string `json:"iban,omitempty"`
+	SWIFT             *string `json:"swift,omitempty"`
 	BankAccountNumber *string `json:"bank_account_number,omitempty"`
-	PaymentReference *string `json:"payment_reference,omitempty"`
+	PaymentReference  *string `json:"payment_reference,omitempty"`
 }
 
 // DocumentTimeline represents the response from GET /api/documents/{document_id}/timeline.
@@ -197,9 +197,9 @@ type StatsResponse struct {
 	TenantID             string               `json:"tenant_id"`
 	PeriodStart          string               `json:"period_start"`
 	PeriodEnd            string               `json:"period_end"`
-	Aggregation          StatsAggregationType  `json:"aggregation"`
-	Actions              []ActionStats         `json:"actions"`
-	TotalDays            int                   `json:"total_days"`
+	Aggregation          StatsAggregationType `json:"aggregation"`
+	Actions              []ActionStats        `json:"actions"`
+	TotalDays            int                  `json:"total_days"`
 	AverageDailyUsage    float64              `json:"average_daily_usage"`
 	BudgetEstimationDays *float64             `json:"budget_estimation_days,omitempty"`
 }
@@ -282,14 +282,14 @@ type LookupCertificate struct {
 
 // PeppolIdLookupResponse represents the response from GET /api/lookup.
 type PeppolIdLookupResponse struct {
-	QueryMetadata   *QueryMetadata          `json:"queryMetadata,omitempty"`
-	Status          string                  `json:"status"`
-	Errors          []string                `json:"errors,omitempty"`
-	DnsInfo         *DnsInfo                `json:"dnsInfo,omitempty"`
-	ServiceMetadata *LookupServiceMetadata  `json:"serviceMetadata,omitempty"`
-	BusinessCard    *LookupBusinessCard     `json:"businessCard,omitempty"`
-	Certificates    []LookupCertificate     `json:"certificates,omitempty"`
-	ExecutionTimeMS float64                 `json:"executionTimeMs"`
+	QueryMetadata   *QueryMetadata         `json:"queryMetadata,omitempty"`
+	Status          string                 `json:"status"`
+	Errors          []string               `json:"errors,omitempty"`
+	DnsInfo         *DnsInfo               `json:"dnsInfo,omitempty"`
+	ServiceMetadata *LookupServiceMetadata `json:"serviceMetadata,omitempty"`
+	BusinessCard    *LookupBusinessCard    `json:"businessCard,omitempty"`
+	Certificates    []LookupCertificate    `json:"certificates,omitempty"`
+	ExecutionTimeMS float64                `json:"executionTimeMs"`
 }
 
 // --- Peppol Search Types (GET /api/lookup/participants) ---
@@ -342,11 +342,11 @@ type ValidationBusinessCard struct {
 
 // PeppolIdValidationResponse represents the response from GET /api/validate/peppol-id.
 type PeppolIdValidationResponse struct {
-	IsValid                bool                     `json:"is_valid"`
-	DNSValid               bool                     `json:"dns_valid"`
-	BusinessCardValid      bool                     `json:"business_card_valid"`
-	SupportedDocumentTypes []string                 `json:"supported_document_types,omitempty"`
-	BusinessCard           *ValidationBusinessCard  `json:"business_card"`
+	IsValid                bool                    `json:"is_valid"`
+	DNSValid               bool                    `json:"dns_valid"`
+	BusinessCardValid      bool                    `json:"business_card_valid"`
+	SupportedDocumentTypes []string                `json:"supported_document_types,omitempty"`
+	BusinessCard           *ValidationBusinessCard `json:"business_card"`
 }
 
 // IssueType represents the type of validation issue.

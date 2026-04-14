@@ -27,9 +27,9 @@ var flags GlobalFlags
 // NewRootCmd creates the root peppol command.
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "peppol",
-		Short:   "CLI for the e-invoice.be Peppol Access Point API",
-		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
+		Use:           "peppol",
+		Short:         "CLI for the e-invoice.be Peppol Access Point API",
+		Version:       fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
