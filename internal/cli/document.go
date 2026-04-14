@@ -357,7 +357,7 @@ func newDocumentCreatePDFCmd() *cobra.Command {
 		Short:   "Create a document from a PDF file",
 		Example: "  peppol document create pdf invoice.pdf",
 		Args:    cobra.ExactArgs(1),
-		RunE:  runDocumentCreatePDF,
+		RunE:    runDocumentCreatePDF,
 	}
 	cmd.Flags().String("vendor-tax-id", "", "Vendor tax ID (e.g. BE1018265814)")
 	cmd.Flags().String("customer-tax-id", "", "Customer tax ID (e.g. BE1018265814)")
