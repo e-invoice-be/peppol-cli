@@ -34,12 +34,36 @@ type seedDoc struct {
 type fakeBackend struct {
 	api     *httptest.Server
 	storage *httptest.Server
-	hits    map[string]int // path -> count
+
+	hitsMu sync.Mutex
+	hits   map[string]int // path -> count
 
 	inbox   []seedDoc
 	outbox  []seedDoc
 	drafts  []seedDoc
 	allByID map[string]seedDoc
+}
+
+func (fb *fakeBackend) recordHit(path string) {
+	fb.hitsMu.Lock()
+	fb.hits[path]++
+	fb.hitsMu.Unlock()
+}
+
+func (fb *fakeBackend) hitCount(path string) int {
+	fb.hitsMu.Lock()
+	defer fb.hitsMu.Unlock()
+	return fb.hits[path]
+}
+
+func (fb *fakeBackend) hitsSnapshot() map[string]int {
+	fb.hitsMu.Lock()
+	defer fb.hitsMu.Unlock()
+	out := make(map[string]int, len(fb.hits))
+	for k, v := range fb.hits {
+		out[k] = v
+	}
+	return out
 }
 
 func newFakeBackend(t *testing.T, inbox, outbox, drafts []seedDoc) *fakeBackend {
@@ -62,7 +86,7 @@ func newFakeBackend(t *testing.T, inbox, outbox, drafts []seedDoc) *fakeBackend 
 	}
 
 	fb.storage = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fb.hits[r.URL.Path]++
+		fb.recordHit(r.URL.Path)
 		// /storage/<doc_id>/ubl.xml
 		// /storage/<doc_id>/att/<filename>
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -95,7 +119,7 @@ func newFakeBackend(t *testing.T, inbox, outbox, drafts []seedDoc) *fakeBackend 
 	mux := http.NewServeMux()
 	listHandler := func(docs []seedDoc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			fb.hits[r.URL.Path]++
+			fb.recordHit(r.URL.Path)
 			// honour ?date_from for top-up
 			from := r.URL.Query().Get("date_from")
 			filtered := docs
@@ -135,7 +159,7 @@ func newFakeBackend(t *testing.T, inbox, outbox, drafts []seedDoc) *fakeBackend 
 	mux.HandleFunc("/api/drafts/", listHandler(drafts))
 
 	mux.HandleFunc("/api/me/", func(w http.ResponseWriter, r *http.Request) {
-		fb.hits[r.URL.Path]++
+		fb.recordHit(r.URL.Path)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"name":       "Test Tenant",
 			"peppol_ids": []string{"0208:0123456789"},
@@ -143,7 +167,7 @@ func newFakeBackend(t *testing.T, inbox, outbox, drafts []seedDoc) *fakeBackend 
 	})
 
 	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
-		fb.hits[r.URL.Path]++
+		fb.recordHit(r.URL.Path)
 		// /api/documents/<id>
 		// /api/documents/<id>/ubl
 		// /api/documents/<id>/timeline
