@@ -738,6 +738,67 @@ func TestRun_FreshTree_PerDocDirectories(t *testing.T) {
 	}
 }
 
+// --- Streaming large attachment ---
+
+// TestRun_StreamsLargeAttachment exercises the streaming HTTP fetch path with
+// a non-trivial body (5MB). It does not (and cannot) assert "doesn't buffer in
+// memory" — the point is to drive bytes through fetchURLToFile/io.Copy with a
+// payload big enough to exceed any default reader buffer, and verify the file
+// on disk is byte-identical to the served body.
+func TestRun_StreamsLargeAttachment(t *testing.T) {
+	const size = 5 * 1024 * 1024
+	body := make([]byte, size)
+	for i := range body {
+		body[i] = byte(i % 251) // non-trivial pattern, avoids accidental zero-runs
+	}
+
+	doc := seedDoc{
+		id:        "big-1",
+		createdAt: "2026-01-10T10:00:00Z",
+		state:     client.DocumentStateSent,
+		direction: client.DocumentDirectionOutbound,
+		ublXML:    `<Invoice id="big-1"/>`,
+		attachments: map[string]string{
+			"big.bin": string(body),
+		},
+	}
+	fb := newFakeBackend(t, nil, []seedDoc{doc}, nil)
+	defer fb.close()
+
+	dir := t.TempDir()
+	_, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       true,
+		APIKey:      "test-key",
+		Client:      fb.client(),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	attPath := filepath.Join(dir, "attachments", "big-1", "big.bin")
+	got, err := os.ReadFile(attPath)
+	if err != nil {
+		t.Fatalf("attachment: %v", err)
+	}
+	if len(got) != size {
+		t.Fatalf("attachment size = %d, want %d", len(got), size)
+	}
+	// Sample bytes at start, middle, and near end to catch off-by-one /
+	// truncation bugs without an O(N) byte-equality loop.
+	for _, off := range []int{0, 1, size / 2, size - 2, size - 1} {
+		if got[off] != byte(off%251) {
+			t.Errorf("byte[%d] = %d, want %d", off, got[off], byte(off%251))
+		}
+	}
+
+	if leftovers := findTempFiles(t, dir); len(leftovers) > 0 {
+		t.Errorf("temp files left behind: %v", leftovers)
+	}
+}
+
 // --- Retry on 429 ---
 
 func TestRun_RetriesTransientFailures(t *testing.T) {

@@ -541,13 +541,9 @@ func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env arc
 	// documents (e.g. failed drafts) have no UBL.
 	ublMeta, err := getUBLMeta(env)
 	if err == nil && ublMeta != nil && ublMeta.SignedURL != nil {
-		body, err := fetchURL(httpClient, *ublMeta.SignedURL)
-		if err != nil {
-			return fmt.Errorf("fetching ubl for %s: %w", id, err)
-		}
 		dest := ublPath(dir, layout, id)
-		if err := atomicWrite(dest, body); err != nil {
-			return err
+		if err := fetchURLToFile(httpClient, *ublMeta.SignedURL, dest); err != nil {
+			return fmt.Errorf("fetching ubl for %s: %w", id, err)
 		}
 	}
 
@@ -556,13 +552,9 @@ func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env arc
 		if att.FileURL == nil {
 			continue
 		}
-		body, err := fetchURL(httpClient, *att.FileURL)
-		if err != nil {
-			return fmt.Errorf("fetching attachment %s/%s: %w", id, att.FileName, err)
-		}
 		dest := attachmentPath(dir, layout, id, att.FileName)
-		if err := atomicWrite(dest, body); err != nil {
-			return err
+		if err := fetchURLToFile(httpClient, *att.FileURL, dest); err != nil {
+			return fmt.Errorf("fetching attachment %s/%s: %w", id, att.FileName, err)
 		}
 	}
 
@@ -604,17 +596,22 @@ func getUBLMeta(env archiveEntry) (*client.DocumentUBL, error) {
 	return &env.UBL, nil
 }
 
-// fetchURL retrieves a URL's body, returning an error on non-2xx.
-func fetchURL(httpClient *http.Client, url string) ([]byte, error) {
+// fetchURLToFile streams a URL's body straight onto destPath via a temp file +
+// atomic rename. Avoids buffering the entire body in memory, which matters when
+// many large attachments are fetched concurrently.
+func fetchURLToFile(httpClient *http.Client, url, destPath string) error {
 	resp, err := httpClient.Get(url)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 	}
-	return io.ReadAll(resp.Body)
+	return writeAtomic(destPath, func(w io.Writer) error {
+		_, err := io.Copy(w, resp.Body)
+		return err
+	})
 }
 
 func ublPath(dir string, layout Layout, id string) string {
@@ -632,7 +629,9 @@ func attachmentPath(dir string, layout Layout, id, name string) string {
 }
 
 // rebuildDocumentsJSONL concatenates every .staging/*.json into documents.jsonl
-// in deterministic sorted order, atomically replacing any prior copy.
+// in deterministic sorted order, atomically replacing any prior copy. Each
+// staged file is streamed through json.Compact one at a time so the full
+// archive never has to be held in memory at once.
 func rebuildDocumentsJSONL(dir string) error {
 	stagingPath := filepath.Join(dir, stagingDir)
 	entries, err := os.ReadDir(stagingPath)
@@ -646,24 +645,45 @@ func rebuildDocumentsJSONL(dir string) error {
 		}
 	}
 	sort.Strings(names)
-	var buf bytes.Buffer
-	for _, n := range names {
-		raw, err := os.ReadFile(filepath.Join(stagingPath, n))
-		if err != nil {
-			return err
+	return writeAtomic(filepath.Join(dir, "documents.jsonl"), func(w io.Writer) error {
+		var buf bytes.Buffer
+		for _, n := range names {
+			raw, err := os.ReadFile(filepath.Join(stagingPath, n))
+			if err != nil {
+				return err
+			}
+			buf.Reset()
+			if err := json.Compact(&buf, raw); err != nil {
+				return fmt.Errorf("compacting %s: %w", n, err)
+			}
+			if _, err := buf.WriteTo(w); err != nil {
+				return err
+			}
+			if _, err := w.Write([]byte{'\n'}); err != nil {
+				return err
+			}
 		}
-		if err := json.Compact(&buf, raw); err != nil {
-			return fmt.Errorf("compacting %s: %w", n, err)
-		}
-		buf.WriteByte('\n')
-	}
-	return atomicWrite(filepath.Join(dir, "documents.jsonl"), buf.Bytes())
+		return nil
+	})
 }
 
 // atomicWrite writes data to a temp file in the same directory, then renames it
 // over path. On POSIX, rename(2) is atomic within a filesystem, guaranteeing no
-// reader ever observes a half-written file at the final name.
+// reader ever observes a half-written file at the final name. Thin wrapper
+// around writeAtomic for callers that already hold a complete byte slice.
 func atomicWrite(path string, data []byte) error {
+	return writeAtomic(path, func(w io.Writer) error {
+		_, err := w.Write(data)
+		return err
+	})
+}
+
+// writeAtomic creates a temp file next to path, hands it to write, then syncs,
+// closes, and renames it over path. On any error the temp file is removed.
+// Centralises the temp-file + sync + rename ritual so streaming callers
+// (fetchURLToFile, rebuildDocumentsJSONL) get the same crash-safety guarantees
+// as atomicWrite without buffering their payload in memory first.
+func writeAtomic(path string, write func(io.Writer) error) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -673,7 +693,7 @@ func atomicWrite(path string, data []byte) error {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
+	if err := write(tmp); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("writing temp file: %w", err)
