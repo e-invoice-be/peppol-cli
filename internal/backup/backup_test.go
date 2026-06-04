@@ -50,22 +50,6 @@ func (fb *fakeBackend) recordHit(path string) {
 	fb.hitsMu.Unlock()
 }
 
-func (fb *fakeBackend) hitCount(path string) int {
-	fb.hitsMu.Lock()
-	defer fb.hitsMu.Unlock()
-	return fb.hits[path]
-}
-
-func (fb *fakeBackend) hitsSnapshot() map[string]int {
-	fb.hitsMu.Lock()
-	defer fb.hitsMu.Unlock()
-	out := make(map[string]int, len(fb.hits))
-	for k, v := range fb.hits {
-		out[k] = v
-	}
-	return out
-}
-
 func newFakeBackend(t *testing.T, inbox, outbox, drafts []seedDoc) *fakeBackend {
 	t.Helper()
 	fb := &fakeBackend{
