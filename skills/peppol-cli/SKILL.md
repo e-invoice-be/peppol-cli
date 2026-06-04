@@ -81,6 +81,10 @@ peppol outbox drafts                           # Sent drafts
 
 peppol drafts list                             # All drafts
 
+peppol backup <dir>                            # Archive all documents to <dir>
+peppol backup <dir> --layout=tree              # Per-document directories
+peppol backup <dir> --concurrency=16           # Parallel workers (default 8)
+
 peppol lookup <peppol-id>                      # Look up participant
 peppol lookup search <query>                   # Search participants by name
 
@@ -130,6 +134,20 @@ peppol lookup search "Company Name" --country BE --json
 peppol validate peppol-id 0208:0123456789 --json
 ```
 
+**Back up the tenant archive:**
+
+```bash
+# First run: full backup of every document, attachment, UBL, and timeline.
+peppol backup ./peppol-archive --json
+
+# Re-running is safe and idempotent:
+#  - if the previous run was killed mid-flight, it resumes
+#  - if it completed, it tops up new documents and refreshes DRAFT/TRANSIT only
+peppol backup ./peppol-archive --json
+```
+
+`manifest.json` at the root of the directory records the tenant, layout, and run history. The directory state decides what re-running does — there are no `--resume` or `--since` flags. See [Backup](references/backup.md) for layout details and the refresh policy.
+
 **Create invoice from PDF (OCR):**
 
 ```bash
@@ -150,6 +168,7 @@ peppol document send <document-id> --json
 - [Inbox & Outbox](references/inbox-outbox.md) -- browse received/sent documents, filtering, pagination
 - [Lookup & Validate](references/lookup-validate.md) -- Peppol ID lookup, search, format validation
 - [Account](references/account.md) -- tenant info, usage statistics
+- [Backup](references/backup.md) -- archive every document, resume, top-up, layouts
 
 ## Discovering Options
 

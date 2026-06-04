@@ -2032,3 +2032,51 @@ func TestAllCommandsHaveExamples(t *testing.T) {
 	}
 	check(cmd)
 }
+
+// --- Backup command tests ---
+
+func TestBackupCmd_Help_DescribesDirectoryStateMachine(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"backup", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	// Help text must document the three modes so users know what re-running does.
+	for _, want := range []string{"empty", "resume", "top-up", "manifest.json"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("backup --help missing %q\nGot:\n%s", want, out)
+		}
+	}
+	// And the flags.
+	for _, flag := range []string{"--layout", "--concurrency"} {
+		if !strings.Contains(out, flag) {
+			t.Errorf("backup --help missing %q\nGot:\n%s", flag, out)
+		}
+	}
+}
+
+func TestBackupCmd_RequiresDirectoryArg(t *testing.T) {
+	cmd := NewRootCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"backup"})
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected error when <dir> arg missing")
+	}
+}
+
+func TestBackupCmd_RegisteredAtRoot(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "backup") {
+		t.Errorf("root --help does not list backup command:\n%s", buf.String())
+	}
+}
