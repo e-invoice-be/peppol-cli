@@ -824,5 +824,163 @@ func TestRun_RetriesTransientFailures(t *testing.T) {
 	}
 }
 
+// --- Path traversal rejection ---
+
+// assertNoEscapedFiles walks the parent of dir and ensures every regular file
+// lives inside dir. Used to confirm a rejected backup never leaks an artifact
+// onto the host filesystem.
+func assertNoEscapedFiles(t *testing.T, dir string) {
+	t.Helper()
+	parent := filepath.Dir(dir)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatalf("abs(dir): %v", err)
+	}
+	_ = filepath.Walk(parent, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		absP, err := filepath.Abs(p)
+		if err != nil {
+			return nil
+		}
+		if !strings.HasPrefix(absP, absDir+string(filepath.Separator)) && absP != absDir {
+			t.Errorf("file escaped backup dir: %s (dir = %s)", absP, absDir)
+		}
+		return nil
+	})
+}
+
+// maliciousBackend returns a minimal API stub that lists exactly one document
+// and reports the supplied IDs / filenames verbatim. The /api/documents/
+// handler ignores the actual request path and dispatches on a suffix match,
+// because Go's HTTP client path-cleans request URIs, which would otherwise
+// strip the traversal segments we want the engine to see.
+func maliciousBackend(t *testing.T, docID, badAttachmentName string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/inbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/drafts/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/outbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{{
+				"id":         docID,
+				"created_at": "2026-01-10T10:00:00Z",
+				"state":      "SENT",
+				"direction":  "OUTBOUND",
+			}},
+			"has_next_page": false,
+		})
+	})
+	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		switch {
+		case strings.HasSuffix(p, "/timeline"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"document_id": docID, "events": []any{}})
+		case strings.HasSuffix(p, "/ubl"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"file_name": docID + ".xml", "file_size": 0})
+		case strings.Contains(p, "/attachments/"):
+			// Attachment detail: return the offending filename with no signed URL.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":        "att-1",
+				"file_name": badAttachmentName,
+				"file_type": "application/pdf",
+				"file_size": 1,
+			})
+		case strings.HasSuffix(p, "/attachments"):
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id":        "att-1",
+				"file_name": badAttachmentName,
+				"file_type": "application/pdf",
+				"file_size": 1,
+			}})
+		default:
+			// Document detail — claim the malicious ID verbatim.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         docID,
+				"created_at": "2026-01-10T10:00:00Z",
+				"state":      "SENT",
+				"direction":  "OUTBOUND",
+			})
+		}
+	})
+	return httptest.NewServer(mux)
+}
+
+func TestRun_RejectsTraversalInAttachmentFilename(t *testing.T) {
+	srv := maliciousBackend(t, "doc-evil-att", "../escape.pdf")
+	defer srv.Close()
+
+	dir := t.TempDir()
+	_, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       true,
+		APIKey:      "test-key",
+		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "doc-evil-att") {
+		t.Errorf("error must name offending document id; got: %s", msg)
+	}
+	if !strings.Contains(msg, "../escape.pdf") {
+		t.Errorf("error must name offending value; got: %s", msg)
+	}
+	assertNoEscapedFiles(t, dir)
+}
+
+func TestRun_RejectsTraversalInDocumentID(t *testing.T) {
+	dir := t.TempDir()
+	doc := client.DocumentResponse{
+		ID:        "../evil",
+		CreatedAt: time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
+		State:     client.DocumentStateSent,
+		Direction: client.DocumentDirectionOutbound,
+	}
+	err := backup.PersistEnvelopeForTesting(dir, backup.LayoutFlat, http.DefaultClient, doc, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "../evil") {
+		t.Errorf("error must name offending document id; got: %s", msg)
+	}
+	assertNoEscapedFiles(t, dir)
+}
+
+func TestRun_RejectsAbsolutePathInAttachmentFilename(t *testing.T) {
+	srv := maliciousBackend(t, "doc-abs-att", "/etc/passwd")
+	defer srv.Close()
+
+	dir := t.TempDir()
+	_, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       true,
+		APIKey:      "test-key",
+		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "doc-abs-att") {
+		t.Errorf("error must name offending document id; got: %s", msg)
+	}
+	if !strings.Contains(msg, "/etc/passwd") {
+		t.Errorf("error must name offending value; got: %s", msg)
+	}
+	assertNoEscapedFiles(t, dir)
+}
+
 // silence imports until later tests need them
 var _ = io.Discard

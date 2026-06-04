@@ -508,10 +508,34 @@ func isTransient(err error) bool {
 	return false
 }
 
+// validatePathComponent rejects values that, if joined into a filesystem path,
+// could escape the backup directory. The check is deliberately strict — we
+// refuse the run rather than silently sanitising — because a value coming back
+// untrusted from the API must never decide where bytes land on disk.
+func validatePathComponent(docID, kind, value string) error {
+	if value == "" {
+		return fmt.Errorf("refusing to back up document %s: empty %s", docID, kind)
+	}
+	if strings.Contains(value, "/") || strings.Contains(value, `\`) ||
+		strings.Contains(value, "..") || filepath.IsAbs(value) {
+		return fmt.Errorf("refusing to back up document %s: unsafe %s %q", docID, kind, value)
+	}
+	return nil
+}
+
 // persistEnvelope writes one document's artifacts (UBL, attachments, envelope)
 // to disk, all atomically.
 func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env archiveEntry) error {
 	id := env.Document.ID
+
+	if err := validatePathComponent(id, "document id", id); err != nil {
+		return err
+	}
+	for _, att := range env.Attachments {
+		if err := validatePathComponent(id, "attachment filename", att.FileName); err != nil {
+			return err
+		}
+	}
 
 	// UBL XML — fetch the signed URL then write atomically. Best-effort: some
 	// documents (e.g. failed drafts) have no UBL.
