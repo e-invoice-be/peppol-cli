@@ -1,6 +1,7 @@
 package backup_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1041,6 +1042,161 @@ func TestRun_RejectsAbsolutePathInAttachmentFilename(t *testing.T) {
 		t.Errorf("error must name offending value; got: %s", msg)
 	}
 	assertNoEscapedFiles(t, dir)
+}
+
+// --- Tolerate 404 on attachments list ---
+
+// TestRun_TolerateAttachmentList404 verifies that a 404 from
+// GET /api/documents/{id}/attachments is treated as "no attachments" rather
+// than aborting the whole run. A single document with a missing attachments
+// collection (server-side data inconsistency) should not kill the backup.
+func TestRun_TolerateAttachmentList404(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/inbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/drafts/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/outbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{{
+				"id":         "doc-no-att",
+				"created_at": "2026-01-10T10:00:00Z",
+				"state":      "SENT",
+				"direction":  "OUTBOUND",
+			}},
+			"has_next_page": false,
+		})
+	})
+	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		switch {
+		case strings.HasSuffix(p, "/attachments"):
+			http.NotFound(w, r)
+			return
+		case strings.HasSuffix(p, "/timeline"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"document_id": "doc-no-att", "events": []any{}})
+		case strings.HasSuffix(p, "/ubl"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"file_name": "doc-no-att.xml", "file_size": 0})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         "doc-no-att",
+				"created_at": "2026-01-10T10:00:00Z",
+				"state":      "SENT",
+				"direction":  "OUTBOUND",
+			})
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	res, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       true,
+		APIKey:      "test-key",
+		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.DocumentsFetched != 1 {
+		t.Errorf("DocumentsFetched = %d, want 1", res.DocumentsFetched)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, "documents.jsonl"))
+	if err != nil {
+		t.Fatalf("documents.jsonl: %v", err)
+	}
+	if !strings.Contains(string(body), `"id":"doc-no-att"`) {
+		t.Errorf("documents.jsonl missing doc-no-att: %s", body)
+	}
+}
+
+// --- Progress output ---
+
+// TestRun_EmitsProgressWhenNotQuiet verifies that with Quiet=false the engine
+// writes one progress line per completed document plus a final summary to
+// opts.Stdout. We assert presence of the doc IDs, the new vs refreshed
+// distinction, and the summary counts — not the exact wording.
+func TestRun_EmitsProgressWhenNotQuiet(t *testing.T) {
+	docInbox := seedDoc{
+		id: "p-new-1", createdAt: "2026-01-10T10:00:00Z",
+		state: client.DocumentStateReceived, direction: client.DocumentDirectionInbound,
+		ublXML: `<x id="p-new-1"/>`,
+	}
+	docOutbox := seedDoc{
+		id: "p-new-2", createdAt: "2026-02-10T10:00:00Z",
+		state: client.DocumentStateSent, direction: client.DocumentDirectionOutbound,
+		ublXML: `<x id="p-new-2"/>`,
+	}
+	fb := newFakeBackend(t, []seedDoc{docInbox}, []seedDoc{docOutbox}, nil)
+	defer fb.close()
+
+	var stdout bytes.Buffer
+	dir := t.TempDir()
+	res, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       false,
+		APIKey:      "test-key",
+		Client:      fb.client(),
+		Stdout:      &stdout,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.DocumentsFetched != 2 {
+		t.Fatalf("DocumentsFetched = %d, want 2", res.DocumentsFetched)
+	}
+
+	out := stdout.String()
+	for _, id := range []string{"p-new-1", "p-new-2"} {
+		if !strings.Contains(out, id) {
+			t.Errorf("stdout missing doc id %q; got:\n%s", id, out)
+		}
+	}
+	if !strings.Contains(out, "fetched") {
+		t.Errorf("stdout missing per-doc 'fetched' marker; got:\n%s", out)
+	}
+	// Final summary should mention the totals.
+	if !strings.Contains(out, "2") {
+		t.Errorf("stdout missing summary count 2; got:\n%s", out)
+	}
+}
+
+// TestRun_QuietProducesNoStdout verifies the legacy behaviour: with Quiet=true
+// the engine writes nothing to opts.Stdout. Many existing tests rely on this.
+func TestRun_QuietProducesNoStdout(t *testing.T) {
+	doc := seedDoc{
+		id: "q-1", createdAt: "2026-01-10T10:00:00Z",
+		state: client.DocumentStateSent, direction: client.DocumentDirectionOutbound,
+		ublXML: `<x/>`,
+	}
+	fb := newFakeBackend(t, nil, []seedDoc{doc}, nil)
+	defer fb.close()
+
+	var stdout bytes.Buffer
+	dir := t.TempDir()
+	_, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       true,
+		APIKey:      "test-key",
+		Client:      fb.client(),
+		Stdout:      &stdout,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout when Quiet=true; got %q", stdout.String())
+	}
 }
 
 // silence imports until later tests need them

@@ -210,8 +210,10 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 		if r.item.refresh {
 			refreshed++
+			fmt.Fprintf(opts.Stdout, "refreshed %s\n", r.envelope.Document.ID)
 		} else {
 			fetched++
+			fmt.Fprintf(opts.Stdout, "fetched %s\n", r.envelope.Document.ID)
 		}
 	}
 
@@ -230,6 +232,8 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	if err := writeManifest(mfPath, mf); err != nil {
 		return nil, err
 	}
+
+	fmt.Fprintf(opts.Stdout, "done: %d fetched, %d refreshed\n", fetched, refreshed)
 
 	return &Result{
 		DocumentsFetched:   fetched,
@@ -261,7 +265,7 @@ func validateOptions(opts *Options) error {
 	if opts.HTTPClient == nil {
 		opts.HTTPClient = http.DefaultClient
 	}
-	if opts.Stdout == nil {
+	if opts.Quiet || opts.Stdout == nil {
 		opts.Stdout = io.Discard
 	}
 	if opts.Stderr == nil {
@@ -448,10 +452,18 @@ func fetchDocument(ctx context.Context, c *client.Client, opts Options, id strin
 		}
 		return &xs, nil
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, client.ErrNotFound):
+		// Server-side data inconsistency: the document exists but its
+		// attachments collection returns 404. Treat as "no attachments"
+		// rather than aborting the whole run, mirroring how UBL below is
+		// handled best-effort.
+		env.Attachments = nil
+	case err != nil:
 		return env, fmt.Errorf("attachments: %w", err)
+	default:
+		env.Attachments = *atts
 	}
-	env.Attachments = *atts
 
 	// Fetch per-attachment metadata to resolve signed URLs.
 	for i, a := range env.Attachments {
