@@ -90,6 +90,7 @@ peppol auth logout
 | `peppol document` | Get, create, send, validate, and delete documents |
 | `peppol lookup` | Look up Peppol participants by ID or name |
 | `peppol validate` | Validate Peppol IDs, JSON invoices, and UBL documents |
+| `peppol backup` | Archive every document, attachment, UBL XML, and timeline to a directory |
 | `peppol stats` | Display usage statistics |
 
 ### Examples
@@ -112,6 +113,9 @@ peppol inbox invoices
 
 # Validate a UBL document
 peppol validate ubl invoice.xml
+
+# Back up every document, attachment, and UBL XML to a directory
+peppol backup ./peppol-archive
 
 # Usage stats for a specific period
 peppol stats --from 2026-01-01 --to 2026-03-01 --aggregation MONTH
