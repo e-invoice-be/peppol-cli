@@ -1,6 +1,7 @@
 package backup_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -972,7 +973,7 @@ func maliciousBackend(t *testing.T, docID, badAttachmentName string) *httptest.S
 	return httptest.NewServer(mux)
 }
 
-func TestRun_RejectsTraversalInAttachmentFilename(t *testing.T) {
+func TestRun_SanitizesTraversalInAttachmentFilename(t *testing.T) {
 	srv := maliciousBackend(t, "doc-evil-att", "../escape.pdf")
 	defer srv.Close()
 
@@ -985,17 +986,11 @@ func TestRun_RejectsTraversalInAttachmentFilename(t *testing.T) {
 		APIKey:      "test-key",
 		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "doc-evil-att") {
-		t.Errorf("error must name offending document id; got: %s", msg)
-	}
-	if !strings.Contains(msg, "../escape.pdf") {
-		t.Errorf("error must name offending value; got: %s", msg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	assertNoEscapedFiles(t, dir)
+	assertEnvelopeAttachmentName(t, dir, "doc-evil-att", "__escape.pdf", "../escape.pdf")
 }
 
 func TestRun_RejectsTraversalInDocumentID(t *testing.T) {
@@ -1017,7 +1012,7 @@ func TestRun_RejectsTraversalInDocumentID(t *testing.T) {
 	assertNoEscapedFiles(t, dir)
 }
 
-func TestRun_RejectsAbsolutePathInAttachmentFilename(t *testing.T) {
+func TestRun_SanitizesAbsolutePathInAttachmentFilename(t *testing.T) {
 	srv := maliciousBackend(t, "doc-abs-att", "/etc/passwd")
 	defer srv.Close()
 
@@ -1030,18 +1025,250 @@ func TestRun_RejectsAbsolutePathInAttachmentFilename(t *testing.T) {
 		APIKey:      "test-key",
 		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "doc-abs-att") {
-		t.Errorf("error must name offending document id; got: %s", msg)
-	}
-	if !strings.Contains(msg, "/etc/passwd") {
-		t.Errorf("error must name offending value; got: %s", msg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	assertNoEscapedFiles(t, dir)
+	assertEnvelopeAttachmentName(t, dir, "doc-abs-att", "_etc_passwd", "/etc/passwd")
+}
+
+// assertEnvelopeAttachmentName reads the staged envelope JSON for docID under
+// dir (flat layout) and asserts the persisted attachment file_name equals
+// wantName. forbiddenName, if non-empty, must NOT appear anywhere in the JSON.
+func assertEnvelopeAttachmentName(t *testing.T, dir, docID, wantName, forbiddenName string) {
+	t.Helper()
+	path := filepath.Join(dir, ".staging", docID+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read envelope %s: %v", path, err)
+	}
+	var env struct {
+		Attachments []struct {
+			FileName string `json:"file_name"`
+		} `json:"attachments"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("decode envelope %s: %v", path, err)
+	}
+	if len(env.Attachments) == 0 {
+		t.Fatalf("envelope %s has no attachments", path)
+	}
+	if env.Attachments[0].FileName != wantName {
+		t.Errorf("attachment file_name = %q, want %q", env.Attachments[0].FileName, wantName)
+	}
+	if forbiddenName != "" && strings.Contains(string(raw), forbiddenName) {
+		t.Errorf("envelope JSON must not contain raw unsanitized name %q; got: %s", forbiddenName, raw)
+	}
+}
+
+// --- Tolerate 404 on attachments list ---
+
+func TestRun_TolerateAttachmentList404(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/inbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/drafts/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/outbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{{
+				"id":         "doc-no-att",
+				"created_at": "2026-01-10T10:00:00Z",
+				"state":      "SENT",
+				"direction":  "OUTBOUND",
+			}},
+			"has_next_page": false,
+		})
+	})
+	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		switch {
+		case strings.HasSuffix(p, "/attachments"):
+			http.NotFound(w, r)
+			return
+		case strings.HasSuffix(p, "/timeline"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"document_id": "doc-no-att", "events": []any{}})
+		case strings.HasSuffix(p, "/ubl"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"file_name": "doc-no-att.xml", "file_size": 0})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":         "doc-no-att",
+				"created_at": "2026-01-10T10:00:00Z",
+				"state":      "SENT",
+				"direction":  "OUTBOUND",
+			})
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	res, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       true,
+		APIKey:      "test-key",
+		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.DocumentsFetched != 1 {
+		t.Errorf("DocumentsFetched = %d, want 1", res.DocumentsFetched)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, "documents.jsonl"))
+	if err != nil {
+		t.Fatalf("documents.jsonl: %v", err)
+	}
+	if !strings.Contains(string(body), `"id":"doc-no-att"`) {
+		t.Errorf("documents.jsonl missing doc-no-att: %s", body)
+	}
+}
+
+// --- Progress output ---
+
+func TestRun_EmitsProgressWhenNotQuiet(t *testing.T) {
+	docInbox := seedDoc{
+		id: "p-new-1", createdAt: "2026-01-10T10:00:00Z",
+		state: client.DocumentStateReceived, direction: client.DocumentDirectionInbound,
+		ublXML: `<x id="p-new-1"/>`,
+	}
+	docOutbox := seedDoc{
+		id: "p-new-2", createdAt: "2026-02-10T10:00:00Z",
+		state: client.DocumentStateSent, direction: client.DocumentDirectionOutbound,
+		ublXML: `<x id="p-new-2"/>`,
+	}
+	fb := newFakeBackend(t, []seedDoc{docInbox}, []seedDoc{docOutbox}, nil)
+	defer fb.close()
+
+	var stdout bytes.Buffer
+	dir := t.TempDir()
+	res, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       false,
+		APIKey:      "test-key",
+		Client:      fb.client(),
+		Stdout:      &stdout,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.DocumentsFetched != 2 {
+		t.Fatalf("DocumentsFetched = %d, want 2", res.DocumentsFetched)
+	}
+
+	out := stdout.String()
+	for _, id := range []string{"p-new-1", "p-new-2"} {
+		if !strings.Contains(out, id) {
+			t.Errorf("stdout missing doc id %q; got:\n%s", id, out)
+		}
+	}
+	if !strings.Contains(out, "fetched") {
+		t.Errorf("stdout missing per-doc 'fetched' marker; got:\n%s", out)
+	}
+	if !strings.Contains(out, "2") {
+		t.Errorf("stdout missing summary count 2; got:\n%s", out)
+	}
+}
+
+func TestRun_QuietProducesNoStdout(t *testing.T) {
+	doc := seedDoc{
+		id: "q-1", createdAt: "2026-01-10T10:00:00Z",
+		state: client.DocumentStateSent, direction: client.DocumentDirectionOutbound,
+		ublXML: `<x/>`,
+	}
+	fb := newFakeBackend(t, nil, []seedDoc{doc}, nil)
+	defer fb.close()
+
+	var stdout bytes.Buffer
+	dir := t.TempDir()
+	_, err := backup.Run(context.Background(), backup.Options{
+		Dir:         dir,
+		Layout:      backup.LayoutFlat,
+		Concurrency: 1,
+		Quiet:       true,
+		APIKey:      "test-key",
+		Client:      fb.client(),
+		Stdout:      &stdout,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("expected empty stdout when Quiet=true; got %q", stdout.String())
+	}
 }
 
 // silence imports until later tests need them
 var _ = io.Discard
+
+func TestSafeAttachmentFilenames(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "no collision",
+			in:   []string{"a.pdf", "b.pdf"},
+			want: []string{"a.pdf", "b.pdf"},
+		},
+		{
+			name: "exact duplicate",
+			in:   []string{"1090.pdf", "1090.pdf"},
+			want: []string{"1090.pdf", "1090-1.pdf"},
+		},
+		{
+			name: "three-way duplicate",
+			in:   []string{"a.pdf", "a.pdf", "a.pdf"},
+			want: []string{"a.pdf", "a-1.pdf", "a-2.pdf"},
+		},
+		{
+			name: "collision after sanitize",
+			in:   []string{"2025/x.pdf", "2025_x.pdf"},
+			want: []string{"2025_x.pdf", "2025_x-1.pdf"},
+		},
+		{
+			name: "no extension",
+			in:   []string{"README", "README"},
+			want: []string{"README", "README-1"},
+		},
+	}
+	for _, tc := range cases {
+		got := backup.SafeAttachmentFilenamesForTesting(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: index %d got %q, want %q (full: %v)", tc.name, i, got[i], tc.want[i], got)
+			}
+		}
+	}
+}
+
+func TestSanitizeAttachmentFilename(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"1090.pdf", "1090.pdf"},
+		{"2025/1090.pdf", "2025_1090.pdf"},
+		{"a/b/c.pdf", "a_b_c.pdf"},
+		{`2025\1090.pdf`, "2025_1090.pdf"},
+		{"../escape.pdf", "__escape.pdf"},
+		{"/etc/passwd", "_etc_passwd"},
+	}
+	for _, tc := range cases {
+		got := backup.SanitizeAttachmentFilenameForTesting(tc.in)
+		if got != tc.want {
+			t.Errorf("sanitize(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

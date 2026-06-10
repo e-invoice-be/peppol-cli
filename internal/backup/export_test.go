@@ -21,3 +21,15 @@ func PersistEnvelopeForTesting(dir string, layout Layout, httpClient *http.Clien
 		Attachments: attachments,
 	})
 }
+
+// SanitizeAttachmentFilenameForTesting exposes sanitizeAttachmentFilename for
+// table-driven tests in the external _test package.
+func SanitizeAttachmentFilenameForTesting(name string) string {
+	return sanitizeAttachmentFilename(name)
+}
+
+// SafeAttachmentFilenamesForTesting exposes safeAttachmentFilenames so the
+// dedup behaviour can be exercised in isolation.
+func SafeAttachmentFilenamesForTesting(names []string) []string {
+	return safeAttachmentFilenames(names)
+}
