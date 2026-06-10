@@ -454,10 +454,8 @@ func fetchDocument(ctx context.Context, c *client.Client, opts Options, id strin
 	})
 	switch {
 	case errors.Is(err, client.ErrNotFound):
-		// Server-side data inconsistency: the document exists but its
-		// attachments collection returns 404. Treat as "no attachments"
-		// rather than aborting the whole run, mirroring how UBL below is
-		// handled best-effort.
+		// 404 on the attachments collection: treat as "no attachments" so
+		// one bad document doesn't kill the whole run (same as UBL below).
 		env.Attachments = nil
 	case err != nil:
 		return env, fmt.Errorf("attachments: %w", err)
@@ -520,6 +518,39 @@ func isTransient(err error) bool {
 	return false
 }
 
+// sanitizeAttachmentFilename rewrites separator and traversal characters so the
+// result is always a single safe path component. Server-provided names like
+// "2025/1090.pdf" are common, so we coerce rather than refuse the run.
+var attachmentFilenameSanitizer = strings.NewReplacer("..", "_", "/", "_", `\`, "_")
+
+func sanitizeAttachmentFilename(name string) string {
+	return attachmentFilenameSanitizer.Replace(name)
+}
+
+// safeAttachmentFilenames sanitizes a slice of attachment filenames and
+// deduplicates collisions within the same document by suffixing "-1", "-2"…
+// before the extension. Order is preserved.
+func safeAttachmentFilenames(names []string) []string {
+	out := make([]string, len(names))
+	seen := make(map[string]int, len(names))
+	for i, raw := range names {
+		base := sanitizeAttachmentFilename(raw)
+		candidate := base
+		for {
+			if _, taken := seen[candidate]; !taken {
+				break
+			}
+			seen[base]++
+			ext := filepath.Ext(base)
+			stem := strings.TrimSuffix(base, ext)
+			candidate = fmt.Sprintf("%s-%d%s", stem, seen[base], ext)
+		}
+		seen[candidate] = 0
+		out[i] = candidate
+	}
+	return out
+}
+
 // validatePathComponent rejects values that, if joined into a filesystem path,
 // could escape the backup directory. The check is deliberately strict — we
 // refuse the run rather than silently sanitising — because a value coming back
@@ -543,8 +574,14 @@ func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env arc
 	if err := validatePathComponent(id, "document id", id); err != nil {
 		return err
 	}
-	for _, att := range env.Attachments {
-		if err := validatePathComponent(id, "attachment filename", att.FileName); err != nil {
+	// Sanitize first, then validate as defence-in-depth.
+	rawNames := make([]string, len(env.Attachments))
+	for i, att := range env.Attachments {
+		rawNames[i] = att.FileName
+	}
+	for i, safe := range safeAttachmentFilenames(rawNames) {
+		env.Attachments[i].FileName = safe
+		if err := validatePathComponent(id, "attachment filename", safe); err != nil {
 			return err
 		}
 	}

@@ -973,7 +973,7 @@ func maliciousBackend(t *testing.T, docID, badAttachmentName string) *httptest.S
 	return httptest.NewServer(mux)
 }
 
-func TestRun_RejectsTraversalInAttachmentFilename(t *testing.T) {
+func TestRun_SanitizesTraversalInAttachmentFilename(t *testing.T) {
 	srv := maliciousBackend(t, "doc-evil-att", "../escape.pdf")
 	defer srv.Close()
 
@@ -986,17 +986,11 @@ func TestRun_RejectsTraversalInAttachmentFilename(t *testing.T) {
 		APIKey:      "test-key",
 		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "doc-evil-att") {
-		t.Errorf("error must name offending document id; got: %s", msg)
-	}
-	if !strings.Contains(msg, "../escape.pdf") {
-		t.Errorf("error must name offending value; got: %s", msg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	assertNoEscapedFiles(t, dir)
+	assertEnvelopeAttachmentName(t, dir, "doc-evil-att", "__escape.pdf", "../escape.pdf")
 }
 
 func TestRun_RejectsTraversalInDocumentID(t *testing.T) {
@@ -1018,7 +1012,7 @@ func TestRun_RejectsTraversalInDocumentID(t *testing.T) {
 	assertNoEscapedFiles(t, dir)
 }
 
-func TestRun_RejectsAbsolutePathInAttachmentFilename(t *testing.T) {
+func TestRun_SanitizesAbsolutePathInAttachmentFilename(t *testing.T) {
 	srv := maliciousBackend(t, "doc-abs-att", "/etc/passwd")
 	defer srv.Close()
 
@@ -1031,25 +1025,44 @@ func TestRun_RejectsAbsolutePathInAttachmentFilename(t *testing.T) {
 		APIKey:      "test-key",
 		Client:      client.NewClient("test-key", client.WithBaseURL(srv.URL)),
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "doc-abs-att") {
-		t.Errorf("error must name offending document id; got: %s", msg)
-	}
-	if !strings.Contains(msg, "/etc/passwd") {
-		t.Errorf("error must name offending value; got: %s", msg)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 	assertNoEscapedFiles(t, dir)
+	assertEnvelopeAttachmentName(t, dir, "doc-abs-att", "_etc_passwd", "/etc/passwd")
+}
+
+// assertEnvelopeAttachmentName reads the staged envelope JSON for docID under
+// dir (flat layout) and asserts the persisted attachment file_name equals
+// wantName. forbiddenName, if non-empty, must NOT appear anywhere in the JSON.
+func assertEnvelopeAttachmentName(t *testing.T, dir, docID, wantName, forbiddenName string) {
+	t.Helper()
+	path := filepath.Join(dir, ".staging", docID+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read envelope %s: %v", path, err)
+	}
+	var env struct {
+		Attachments []struct {
+			FileName string `json:"file_name"`
+		} `json:"attachments"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatalf("decode envelope %s: %v", path, err)
+	}
+	if len(env.Attachments) == 0 {
+		t.Fatalf("envelope %s has no attachments", path)
+	}
+	if env.Attachments[0].FileName != wantName {
+		t.Errorf("attachment file_name = %q, want %q", env.Attachments[0].FileName, wantName)
+	}
+	if forbiddenName != "" && strings.Contains(string(raw), forbiddenName) {
+		t.Errorf("envelope JSON must not contain raw unsanitized name %q; got: %s", forbiddenName, raw)
+	}
 }
 
 // --- Tolerate 404 on attachments list ---
 
-// TestRun_TolerateAttachmentList404 verifies that a 404 from
-// GET /api/documents/{id}/attachments is treated as "no attachments" rather
-// than aborting the whole run. A single document with a missing attachments
-// collection (server-side data inconsistency) should not kill the backup.
 func TestRun_TolerateAttachmentList404(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/inbox/", func(w http.ResponseWriter, r *http.Request) {
@@ -1118,10 +1131,6 @@ func TestRun_TolerateAttachmentList404(t *testing.T) {
 
 // --- Progress output ---
 
-// TestRun_EmitsProgressWhenNotQuiet verifies that with Quiet=false the engine
-// writes one progress line per completed document plus a final summary to
-// opts.Stdout. We assert presence of the doc IDs, the new vs refreshed
-// distinction, and the summary counts — not the exact wording.
 func TestRun_EmitsProgressWhenNotQuiet(t *testing.T) {
 	docInbox := seedDoc{
 		id: "p-new-1", createdAt: "2026-01-10T10:00:00Z",
@@ -1163,14 +1172,11 @@ func TestRun_EmitsProgressWhenNotQuiet(t *testing.T) {
 	if !strings.Contains(out, "fetched") {
 		t.Errorf("stdout missing per-doc 'fetched' marker; got:\n%s", out)
 	}
-	// Final summary should mention the totals.
 	if !strings.Contains(out, "2") {
 		t.Errorf("stdout missing summary count 2; got:\n%s", out)
 	}
 }
 
-// TestRun_QuietProducesNoStdout verifies the legacy behaviour: with Quiet=true
-// the engine writes nothing to opts.Stdout. Many existing tests rely on this.
 func TestRun_QuietProducesNoStdout(t *testing.T) {
 	doc := seedDoc{
 		id: "q-1", createdAt: "2026-01-10T10:00:00Z",
@@ -1201,3 +1207,68 @@ func TestRun_QuietProducesNoStdout(t *testing.T) {
 
 // silence imports until later tests need them
 var _ = io.Discard
+
+func TestSafeAttachmentFilenames(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "no collision",
+			in:   []string{"a.pdf", "b.pdf"},
+			want: []string{"a.pdf", "b.pdf"},
+		},
+		{
+			name: "exact duplicate",
+			in:   []string{"1090.pdf", "1090.pdf"},
+			want: []string{"1090.pdf", "1090-1.pdf"},
+		},
+		{
+			name: "three-way duplicate",
+			in:   []string{"a.pdf", "a.pdf", "a.pdf"},
+			want: []string{"a.pdf", "a-1.pdf", "a-2.pdf"},
+		},
+		{
+			name: "collision after sanitize",
+			in:   []string{"2025/x.pdf", "2025_x.pdf"},
+			want: []string{"2025_x.pdf", "2025_x-1.pdf"},
+		},
+		{
+			name: "no extension",
+			in:   []string{"README", "README"},
+			want: []string{"README", "README-1"},
+		},
+	}
+	for _, tc := range cases {
+		got := backup.SafeAttachmentFilenamesForTesting(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: index %d got %q, want %q (full: %v)", tc.name, i, got[i], tc.want[i], got)
+			}
+		}
+	}
+}
+
+func TestSanitizeAttachmentFilename(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"1090.pdf", "1090.pdf"},
+		{"2025/1090.pdf", "2025_1090.pdf"},
+		{"a/b/c.pdf", "a_b_c.pdf"},
+		{`2025\1090.pdf`, "2025_1090.pdf"},
+		{"../escape.pdf", "__escape.pdf"},
+		{"/etc/passwd", "_etc_passwd"},
+	}
+	for _, tc := range cases {
+		got := backup.SanitizeAttachmentFilenameForTesting(tc.in)
+		if got != tc.want {
+			t.Errorf("sanitize(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
