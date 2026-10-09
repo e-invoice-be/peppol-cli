@@ -485,7 +485,8 @@ func fetchDocument(ctx context.Context, c *client.Client, opts Options, id strin
 }
 
 // withRetry retries the function on transient errors (429, 5xx) with
-// exponential backoff. Non-transient errors propagate immediately.
+// exponential backoff, or after the Retry-After wait when the API announces a
+// longer one. Non-transient errors propagate immediately.
 func withRetry[T any](ctx context.Context, opts Options, fn func() (*T, error)) (*T, error) {
 	var lastErr error
 	for attempt := 0; attempt < opts.MaxRetries; attempt++ {
@@ -502,10 +503,23 @@ func withRetry[T any](ctx context.Context, opts Options, fn func() (*T, error)) 
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(d):
+		case <-time.After(retryWait(d, err)):
 		}
 	}
 	return nil, fmt.Errorf("exhausted retries: %w", lastErr)
+}
+
+// maxRetryAfterWait caps how long a Retry-After header can stall a worker.
+const maxRetryAfterWait = 60 * time.Second
+
+// retryWait returns the wait before the next attempt: the backoff, or the
+// Retry-After wait (capped at maxRetryAfterWait) when that is longer.
+func retryWait(backoff time.Duration, err error) time.Duration {
+	var api *client.APIError
+	if errors.As(err, &api) {
+		return max(backoff, min(api.RetryAfter, maxRetryAfterWait))
+	}
+	return backoff
 }
 
 func isTransient(err error) bool {

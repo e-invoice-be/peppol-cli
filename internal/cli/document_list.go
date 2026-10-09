@@ -142,6 +142,6 @@ func renderDocumentList(cmd *cobra.Command, result *client.PaginatedDocuments, m
 	if err := r.Table(headers, rows); err != nil {
 		return err
 	}
-	r.Pagination(result.Page, result.PageSize, result.Total)
+	r.Pagination("documents", result.Page, result.PageSize, result.Total)
 	return nil
 }

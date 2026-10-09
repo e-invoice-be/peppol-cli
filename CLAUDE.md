@@ -20,6 +20,7 @@ internal/
     auth.go                  # auth, auth status, auth logout
     me.go                    # me command
     stats.go                 # stats command
+    mailbox.go               # mailbox list, get, attachment, reprocess
     completion.go            # completion bash|zsh|fish|powershell
   client/
     client.go                # HTTP client with Bearer auth

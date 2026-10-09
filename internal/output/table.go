@@ -32,8 +32,9 @@ func (r *Renderer) Table(headers []string, rows [][]string) error {
 	return tw.Render()
 }
 
-// Pagination prints a pagination footer below output.
-func (r *Renderer) Pagination(page, pageSize, total int) {
+// Pagination prints a pagination footer below output. noun names the listed
+// items, e.g. "documents".
+func (r *Renderer) Pagination(noun string, page, pageSize, total int) {
 	if r.quiet {
 		return
 	}
@@ -48,7 +49,7 @@ func (r *Renderer) Pagination(page, pageSize, total int) {
 	}
 	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
 
-	msg := fmt.Sprintf("Showing %d-%d of %d documents (page %d/%d)", start, end, total, page, totalPages)
+	msg := fmt.Sprintf("Showing %d-%d of %d %s (page %d/%d)", start, end, total, noun, page, totalPages)
 	if r.color {
 		msg = LabelStyle.Render(msg)
 	}

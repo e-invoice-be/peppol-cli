@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
 	"github.com/e-invoicebe/peppol-cli/internal/config"
@@ -1710,10 +1713,14 @@ func TestDocumentSendCmd_Help(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"sender-peppol-id", "receiver-peppol-id", "email"} {
+	for _, want := range []string{"sender-peppol-id", "receiver-peppol-id"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("send help missing '--%s'\nGot:\n%s", want, out)
 		}
+	}
+	// --email is deprecated by the API: cobra hides deprecated flags from help.
+	if strings.Contains(out, "--email") {
+		t.Errorf("send help should hide deprecated --email\nGot:\n%s", out)
 	}
 }
 
@@ -2078,5 +2085,375 @@ func TestBackupCmd_RegisteredAtRoot(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "backup") {
 		t.Errorf("root --help does not list backup command:\n%s", buf.String())
+	}
+}
+
+// --- Mailbox command tests ---
+
+func TestMailboxCmd_RegisteredWithSubcommands(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"mailbox", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("help command failed: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"list", "get", "attachment", "reprocess"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("mailbox help missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestMailboxList_FlagsReachQuery(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			"all filters",
+			[]string{
+				"--status", "failed",
+				"--processed=false",
+				"--from", "2026-03-01T00:00:00Z",
+				"--to", "2026-03-31T23:59:59Z",
+				"--search", "invoice",
+				"--sort-by", "created_at",
+				"--sort-order", "asc",
+				"--page", "3",
+				"--page-size", "50",
+			},
+			"page=3&page_size=50&processed=false&received_from=2026-03-01T00%3A00%3A00Z&received_to=2026-03-31T23%3A59%3A59Z&search=invoice&sort_by=created_at&sort_order=asc&status=failed",
+		},
+		{"processed not given", []string{"--search", "invoice"}, "page=1&page_size=20&search=invoice"},
+		{"processed given", []string{"--processed"}, "page=1&page_size=20&processed=true"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.URL.RawQuery
+				w.Write([]byte(`{"items":[]}`))
+			}))
+			defer srv.Close()
+
+			cmd := newMailboxListCmd()
+			if err := cmd.ParseFlags(tt.args); err != nil {
+				t.Fatalf("parsing flags: %v", err)
+			}
+			params, err := mailboxListParams(cmd)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if _, err := client.NewClient("key", client.WithBaseURL(srv.URL)).ListMailbox(params); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("query = %q\nwant    %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMailboxList_RejectsInvalidEnums(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{"status", []string{"--status", "done"}, `invalid --status "done", must be one of: pending, success, failed`},
+		{"sort-by", []string{"--sort-by", "invoice_date"}, `invalid --sort-by "invoice_date", must be one of: received_at, created_at`},
+		{"sort-order", []string{"--sort-order", "up"}, `invalid --sort-order "up", must be one of: asc, desc`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := NewRootCmd()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetErr(buf)
+			cmd.SetArgs(append([]string{"mailbox", "list"}, tt.args...))
+			err := cmd.Execute()
+			if err == nil || err.Error() != tt.wantErr {
+				t.Errorf("error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func TestRenderMailboxList_Table(t *testing.T) {
+	received := time.Date(2026, 3, 2, 9, 15, 0, 0, time.UTC)
+	result := &client.PaginatedInboundEmails{
+		Items: []client.InboundEmailResponse{
+			{
+				ID:              "mail-ok",
+				SenderEmail:     "billing@supplier.example",
+				Subject:         strPtr("Invoice 2026-001"),
+				AttachmentCount: 2,
+				Processed:       true,
+				ReceivedAt:      &received,
+				CreatedAt:       time.Date(2026, 3, 2, 9, 15, 4, 0, time.UTC),
+				DocumentID:      strPtr("doc-9"),
+			},
+			{
+				ID:           "mail-bad",
+				SenderEmail:  "ap@vendor.example",
+				Processed:    true,
+				ErrorMessage: strPtr("No PDF attachment found"),
+				// received_at is null: the API falls back to created_at.
+				CreatedAt: time.Date(2026, 4, 10, 7, 30, 0, 0, time.UTC),
+			},
+			{
+				ID:          "mail-new",
+				SenderEmail: "new@vendor.example",
+				CreatedAt:   time.Date(2026, 4, 11, 8, 0, 0, 0, time.UTC),
+			},
+		},
+		Total: 41, Page: 2, PageSize: 3, Pages: 14, HasNextPage: true,
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderMailboxList(r, result); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	if want := "Showing 4-6 of 41 emails (page 2/14)"; !strings.Contains(out, want) {
+		t.Errorf("output missing %q\nGot:\n%s", want, out)
+	}
+	// Cells in column order, separated by any border or padding.
+	for _, row := range []string{
+		`ID\W+PROCESSED\W+FROM\W+SUBJECT\W+ATTACHMENTS\W+RECEIVED`,
+		`mail-ok\W+Yes\W+billing@supplier\.example\W+Invoice 2026-001\W+2\W+2026-03-02 09:15`,
+		`mail-bad\W+Yes\W+ap@vendor\.example\W+0\W+2026-04-10 07:30`,
+		`mail-new\W+No\W+new@vendor\.example\W+0\W+2026-04-11 08:00`,
+	} {
+		if !regexp.MustCompile(row).MatchString(out) {
+			t.Errorf("output has no row matching %s\nGot:\n%s", row, out)
+		}
+	}
+}
+
+func TestRenderMailboxList_Empty(t *testing.T) {
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderMailboxList(r, &client.PaginatedInboundEmails{}); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "No inbound emails found.") {
+		t.Errorf("expected empty message, got %q", buf.String())
+	}
+}
+
+func TestRenderMailboxEmail_FailedWithAttachments(t *testing.T) {
+	size := 102400
+	mail := &client.InboundEmailResponse{
+		ID:          "mail-7",
+		MessageID:   "<m7@mail.example.com>",
+		SenderEmail: "ap@vendor.example",
+		SenderName:  strPtr("Vendor AP"),
+		ToAddresses: strPtr("invoices@tenant.example"),
+		Subject:     strPtr("Invoice 42"),
+		Attachments: []client.AttachmentInfo{
+			{Filename: "invoice.pdf", Size: &size, ContentType: strPtr("application/pdf")},
+			{Filename: "unknown.bin"},
+		},
+		AttachmentCount: 2,
+		ErrorMessage:    strPtr("No PDF attachment found"),
+		CreatedAt:       time.Date(2026, 4, 10, 7, 30, 0, 0, time.UTC),
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderMailboxEmail(r, mail); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		`(?m)^ID +mail-7$`,
+		`(?m)^Message ID +<m7@mail\.example\.com>$`,
+		`(?m)^From +Vendor AP <ap@vendor\.example>$`,
+		`(?m)^To +invoices@tenant\.example$`,
+		`(?m)^Subject +Invoice 42$`,
+		`(?m)^Received +2026-04-10 07:30:00$`,
+		`(?m)^Processed +No$`,
+		`(?m)^Error +No PDF attachment found$`,
+		`invoice\.pdf\W+application/pdf\W+100\.0 KB`,
+		`unknown\.bin\W+-\W+-`,
+	} {
+		if !regexp.MustCompile(want).MatchString(out) {
+			t.Errorf("output has no line matching %s\nGot:\n%s", want, out)
+		}
+	}
+	// Absent optional fields get no row.
+	if absent := regexp.MustCompile(`(?m)^(CC|BCC|Processed At|Document) `); absent.MatchString(out) {
+		t.Errorf("output has a row for an absent field: %q\nGot:\n%s", absent.FindString(out), out)
+	}
+}
+
+func TestWriteMailboxAttachment_StdoutGetsRawBytes(t *testing.T) {
+	content := []byte{0x89, 'P', 'N', 'G', 0x00, 0xff}
+	att := &client.MailboxAttachment{Content: content, ContentType: "image/png"}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := writeMailboxAttachment(r, att, ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), content) {
+		t.Errorf("stdout = %v, want exactly %v", buf.Bytes(), content)
+	}
+}
+
+func TestWriteMailboxAttachment_OutputFile(t *testing.T) {
+	content := []byte{0x89, 'P', 'N', 'G', 0x00, 0xff}
+	att := &client.MailboxAttachment{Content: content, ContentType: "image/png"}
+	path := filepath.Join(t.TempDir(), "scan.png")
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := writeMailboxAttachment(r, att, path); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading output file: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("file = %v, want %v", got, content)
+	}
+	if want := "Attachment written to " + path + " (6 B)"; !strings.Contains(buf.String(), want) {
+		t.Errorf("output = %q, want it to contain %q", buf.String(), want)
+	}
+}
+
+func TestWriteMailboxAttachment_OutputFileJSON(t *testing.T) {
+	att := &client.MailboxAttachment{Content: []byte("<Invoice/>"), ContentType: "application/xml"}
+	path := filepath.Join(t.TempDir(), "invoice.xml")
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, true, false, true, false)
+	if err := writeMailboxAttachment(r, att, path); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, buf.String())
+	}
+	if got["output"] != path || got["content_type"] != "application/xml" || got["size"] != float64(10) {
+		t.Errorf("unexpected JSON summary: %v", got)
+	}
+}
+
+// --- Item attributes (BG-32) ---
+
+func TestRenderDocumentSections_FullShowsItemAttributes(t *testing.T) {
+	var doc client.DocumentResponse
+	// Shape taken from the LineItem schema: item_attributes is a list of
+	// {name, value}, value may be null.
+	err := json.Unmarshal([]byte(`{
+		"id": "doc-1",
+		"created_at": "2026-01-10T10:00:00Z",
+		"items": [
+			{"description": "T-shirt", "quantity": "2", "unit_price": "10.00", "amount": "20.00",
+			 "item_attributes": [{"name": "Color", "value": "Red"}, {"name": "Fragile", "value": null}]},
+			{"description": "Shipping", "quantity": "1", "unit_price": "5.00", "amount": "5.00"}
+		]
+	}`), &doc)
+	if err != nil {
+		t.Fatalf("decoding document: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, &doc, true); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"ATTRIBUTES", "Color=Red, Fragile"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderDocumentSections_FullWithoutItemAttributesKeepsColumns(t *testing.T) {
+	doc := &client.DocumentResponse{
+		ID:    "doc-1",
+		Items: []client.LineItem{{Description: strPtr("Shipping"), Amount: strPtr("5.00")}},
+	}
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, doc, true); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if strings.Contains(buf.String(), "ATTRIBUTES") {
+		t.Errorf("no item has attributes, so no Attributes column expected\nGot:\n%s", buf.String())
+	}
+}
+
+// --- document create pdf: failed conversion ---
+
+func TestRenderPDFCreateResult_FailedConversionShowsError(t *testing.T) {
+	var doc client.DocumentCreateFromPdfResponse
+	// A failed conversion: success false, error fields set, items empty.
+	err := json.Unmarshal([]byte(`{
+		"id": "doc-pdf-1",
+		"created_at": "2026-05-04T12:00:00Z",
+		"state": "DRAFT",
+		"success": false,
+		"error_type": "extraction_failed",
+		"error_message": "Could not read the invoice total",
+		"items": []
+	}`), &doc)
+	if err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderPDFCreateResult(r, &doc); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"PDF conversion failed",
+		"extraction_failed",
+		"Could not read the invoice total",
+		"doc-pdf-1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "successfully") {
+		t.Errorf("failed conversion must not report success\nGot:\n%s", out)
+	}
+}
+
+func TestRenderPDFCreateResult_Success(t *testing.T) {
+	doc := &client.DocumentCreateFromPdfResponse{
+		DocumentResponse: client.DocumentResponse{ID: "doc-pdf-2"},
+		Success:          true,
+	}
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderPDFCreateResult(r, doc); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Document created from PDF successfully.") || !strings.Contains(out, "doc-pdf-2") {
+		t.Errorf("unexpected output:\n%s", out)
+	}
+	if regexp.MustCompile(`(?m)^Error (Type|Message) `).MatchString(out) {
+		t.Errorf("successful conversion must not show error rows\nGot:\n%s", out)
 	}
 }

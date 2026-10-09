@@ -33,6 +33,7 @@ If not authenticated, either:
 - **Validate before sending** -- run `peppol document validate <id> --json` and check the `is_valid` field before calling `peppol document send`.
 - **Use `--full` for line items** -- `peppol document get <id> --json` omits line items by default. Add `--full` to include them.
 - **Check exit codes** -- `0` = success, `1` = general error, `2` = auth error, `3` = validation failed, `4` = not found.
+- **Respect rate limits** -- a rate-limited request fails with `API error 429: ... (retry after 30s)`. Wait for the stated time before the next attempt.
 - **Paginate through results** -- default page size is 20. Use `--page` and `--page-size` to iterate. The JSON response includes `total`, `page`, and `page_size` fields.
 - **Use `-w <workspace>`** to target a specific tenant without switching global state. Good for multi-tenant automation.
 - **Prefer `document create json`** -- JSON creation is the most reliable format. PDF creation uses OCR and may need manual review (check the `success` field). UBL is for pre-built XML.
@@ -80,6 +81,12 @@ peppol outbox list                             # All sent documents
 peppol outbox drafts                           # Sent drafts
 
 peppol drafts list                             # All drafts
+
+peppol mailbox list                            # Inbound emails
+peppol mailbox list --status failed            # Filter: pending|success|failed
+peppol mailbox get <email-id>                  # Show inbound email
+peppol mailbox attachment <id> <file> -o f     # Download email attachment (alias: att)
+peppol mailbox reprocess <email-id>            # Retry a failed email
 
 peppol backup <dir>                            # Archive all documents to <dir>
 peppol backup <dir> --layout=tree              # Per-document directories
@@ -154,7 +161,8 @@ peppol backup ./peppol-archive --json
 # Create with tax ID hints for better OCR accuracy
 peppol document create pdf invoice.pdf --vendor-tax-id BE0123456789 --customer-tax-id BE9876543210 --json
 
-# Check if OCR succeeded (inspect "success" field)
+# Check if OCR succeeded (inspect "success" field; when false,
+# "error_type" and "error_message" give the reason)
 # Then validate and send as usual
 peppol document validate <document-id> --json
 peppol document send <document-id> --json
@@ -166,6 +174,7 @@ peppol document send <document-id> --json
 - [Documents](references/documents.md) -- create, get, send, validate, delete, download UBL
 - [Attachments](references/attachments.md) -- list, get, add, delete attachments
 - [Inbox & Outbox](references/inbox-outbox.md) -- browse received/sent documents, filtering, pagination
+- [Mailbox](references/mailbox.md) -- inbound emails, attachment download, reprocess failed emails
 - [Lookup & Validate](references/lookup-validate.md) -- Peppol ID lookup, search, format validation
 - [Account](references/account.md) -- tenant info, usage statistics
 - [Backup](references/backup.md) -- archive every document, resume, top-up, layouts

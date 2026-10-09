@@ -153,7 +153,7 @@ func TestPagination_Format(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewTestRenderer(&buf, false, false, true, false)
 
-	r.Pagination(2, 20, 55)
+	r.Pagination("documents", 2, 20, 55)
 
 	out := buf.String()
 	expected := "Showing 21-40 of 55 documents (page 2/3)"
@@ -166,7 +166,7 @@ func TestPagination_LastPage(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewTestRenderer(&buf, false, false, true, false)
 
-	r.Pagination(3, 20, 55)
+	r.Pagination("documents", 3, 20, 55)
 
 	out := buf.String()
 	if !strings.Contains(out, "Showing 41-55 of 55") {
@@ -178,7 +178,7 @@ func TestPagination_Zero_NoOutput(t *testing.T) {
 	var buf bytes.Buffer
 	r := NewTestRenderer(&buf, false, false, true, false)
 
-	r.Pagination(1, 20, 0)
+	r.Pagination("documents", 1, 20, 0)
 
 	if buf.Len() != 0 {
 		t.Errorf("expected no output for zero total, got %q", buf.String())

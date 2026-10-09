@@ -48,7 +48,7 @@ peppol document create pdf invoice.pdf --vendor-tax-id BE0123456789 --customer-t
 
 - `--vendor-tax-id`: hint for OCR to identify the vendor
 - `--customer-tax-id`: hint for OCR to identify the customer
-- Check the `success` field in the response -- `false` means the document may need manual review
+- Check the `success` field in the response -- `false` means the conversion failed and the document may need manual review; `error_type` and `error_message` give the reason, and `items` can be empty
 
 ## Send document
 
@@ -61,7 +61,7 @@ Optional override flags:
 - `--sender-peppol-scheme`: override sender scheme
 - `--receiver-peppol-id`: override receiver Peppol ID
 - `--receiver-peppol-scheme`: override receiver scheme
-- `--email`: send email notification
+- `--email`: send email notification (deprecated by the API -- still accepted, prints a warning, do not use in new scripts)
 
 **Important:** Always validate before sending.
 

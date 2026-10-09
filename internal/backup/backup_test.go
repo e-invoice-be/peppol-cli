@@ -886,6 +886,107 @@ func TestRun_RetriesTransientFailures(t *testing.T) {
 	}
 }
 
+func TestRun_RetryHonoursRetryAfterHeader(t *testing.T) {
+	// /api/documents/doc-1 answers 429 with Retry-After: 1 once, then 200.
+	// The base backoff is 1ms, so only the header can explain a 1s wait.
+	var hitTimes []time.Time
+	var mu sync.Mutex
+
+	doc := map[string]any{
+		"id":         "doc-1",
+		"created_at": "2026-01-10T10:00:00Z",
+		"state":      "RECEIVED",
+		"direction":  "INBOUND",
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/inbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []map[string]any{doc},
+			"total": 1, "page": 1, "page_size": 100, "pages": 1, "has_next_page": false,
+		})
+	})
+	mux.HandleFunc("/api/outbox/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/drafts/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "has_next_page": false})
+	})
+	mux.HandleFunc("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/documents/doc-1":
+			mu.Lock()
+			hitTimes = append(hitTimes, time.Now())
+			first := len(hitTimes) == 1
+			mu.Unlock()
+			if first {
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_ = json.NewEncoder(w).Encode(map[string]any{"detail": "rate limited"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(doc)
+		case strings.HasSuffix(r.URL.Path, "/timeline"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"document_id": "doc-1", "events": []any{}})
+		case strings.HasSuffix(r.URL.Path, "/ubl"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"file_name": "doc-1.xml", "file_size": 0})
+		case strings.HasSuffix(r.URL.Path, "/attachments"):
+			_ = json.NewEncoder(w).Encode([]any{})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	_, err := backup.Run(context.Background(), backup.Options{
+		Dir:            t.TempDir(),
+		Layout:         backup.LayoutFlat,
+		Concurrency:    1,
+		Quiet:          true,
+		APIKey:         "test-key",
+		Client:         client.NewClient("test-key", client.WithBaseURL(srv.URL)),
+		MaxRetries:     3,
+		RetryBaseDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(hitTimes) != 2 {
+		t.Fatalf("expected 2 hits on /api/documents/doc-1, got %d", len(hitTimes))
+	}
+	if gap := hitTimes[1].Sub(hitTimes[0]); gap < time.Second {
+		t.Errorf("retry came after %v, want at least the 1s from Retry-After", gap)
+	}
+}
+
+func TestRetryWait(t *testing.T) {
+	rateLimited := func(retryAfter time.Duration) error {
+		return fmt.Errorf("fetching: %w", &client.APIError{StatusCode: 429, RetryAfter: retryAfter})
+	}
+	tests := []struct {
+		name    string
+		backoff time.Duration
+		err     error
+		want    time.Duration
+	}{
+		{"no Retry-After", 400 * time.Millisecond, rateLimited(0), 400 * time.Millisecond},
+		{"Retry-After longer than backoff", 400 * time.Millisecond, rateLimited(5 * time.Second), 5 * time.Second},
+		{"Retry-After shorter than backoff", 2 * time.Second, rateLimited(time.Second), 2 * time.Second},
+		{"Retry-After of a day is capped", 400 * time.Millisecond, rateLimited(24 * time.Hour), time.Minute},
+		{"not an API error", 400 * time.Millisecond, io.ErrUnexpectedEOF, 400 * time.Millisecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := backup.RetryWaitForTesting(tt.backoff, tt.err); got != tt.want {
+				t.Errorf("wait = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // --- Path traversal rejection ---
 
 // assertNoEscapedFiles walks the parent of dir and ensures every regular file

@@ -34,6 +34,18 @@ type ErrorResponse struct {
 	Detail string `json:"detail"`
 }
 
+// HTTPValidationError represents a 422 validation error response.
+type HTTPValidationError struct {
+	Detail []ValidationError `json:"detail"`
+}
+
+// ValidationError represents a single request validation error.
+type ValidationError struct {
+	Loc  []any  `json:"loc"`
+	Msg  string `json:"msg"`
+	Type string `json:"type"`
+}
+
 // StatsAggregationType represents the aggregation period for stats.
 type StatsAggregationType string
 
@@ -159,15 +171,22 @@ type DocumentResponse struct {
 
 // LineItem represents a single line item in a document.
 type LineItem struct {
-	Description *string `json:"description,omitempty"`
-	Quantity    *string `json:"quantity,omitempty"`
-	Unit        *string `json:"unit,omitempty"`
-	UnitPrice   *string `json:"unit_price,omitempty"`
-	Amount      *string `json:"amount,omitempty"`
-	TaxRate     *string `json:"tax_rate,omitempty"`
-	Tax         *string `json:"tax,omitempty"`
-	ProductCode *string `json:"product_code,omitempty"`
-	Date        *string `json:"date,omitempty"`
+	Description    *string         `json:"description,omitempty"`
+	Quantity       *string         `json:"quantity,omitempty"`
+	Unit           *string         `json:"unit,omitempty"`
+	UnitPrice      *string         `json:"unit_price,omitempty"`
+	Amount         *string         `json:"amount,omitempty"`
+	TaxRate        *string         `json:"tax_rate,omitempty"`
+	Tax            *string         `json:"tax,omitempty"`
+	ProductCode    *string         `json:"product_code,omitempty"`
+	Date           *string         `json:"date,omitempty"`
+	ItemAttributes []ItemAttribute `json:"item_attributes,omitempty"`
+}
+
+// ItemAttribute represents an item-level attribute (BT-160 name, BT-161 value).
+type ItemAttribute struct {
+	Name  string  `json:"name"`
+	Value *string `json:"value,omitempty"`
 }
 
 // PaymentDetail represents payment information for a document.
@@ -345,7 +364,7 @@ type PeppolIdValidationResponse struct {
 	IsValid                bool                    `json:"is_valid"`
 	DNSValid               bool                    `json:"dns_valid"`
 	BusinessCardValid      bool                    `json:"business_card_valid"`
-	SupportedDocumentTypes []string                `json:"supported_document_types,omitempty"`
+	SupportedDocumentTypes []string                `json:"supported_document_types"`
 	BusinessCard           *ValidationBusinessCard `json:"business_card"`
 }
 
@@ -380,8 +399,10 @@ type ValidationResponse struct {
 // DocumentCreateFromPdfResponse represents the response from POST /api/documents/pdf.
 type DocumentCreateFromPdfResponse struct {
 	DocumentResponse
-	Success     bool    `json:"success"`
-	UBLDocument *string `json:"ubl_document,omitempty"`
+	Success      bool    `json:"success"`
+	UBLDocument  *string `json:"ubl_document,omitempty"`
+	ErrorType    *string `json:"error_type,omitempty"`
+	ErrorMessage *string `json:"error_message,omitempty"`
 }
 
 // DocumentDelete represents the response from DELETE /api/documents/{id}.
@@ -400,6 +421,51 @@ type DocumentUBL struct {
 	ReceiverPeppolScheme *string `json:"receiver_peppol_scheme,omitempty"`
 	FileHash             *string `json:"file_hash,omitempty"`
 	ValidatedAt          *string `json:"validated_at,omitempty"`
+}
+
+// --- Mailbox Types (GET /api/mailbox/) ---
+
+// AttachmentInfo describes an attachment on an inbound email.
+type AttachmentInfo struct {
+	Filename    string  `json:"filename"`
+	Size        *int    `json:"size,omitempty"`
+	ContentType *string `json:"content_type,omitempty"`
+}
+
+// InboundEmailResponse represents the response from GET /api/mailbox/{inbound_email_id}.
+type InboundEmailResponse struct {
+	ID              string           `json:"id"`
+	MessageID       string           `json:"message_id"`
+	SenderEmail     string           `json:"sender_email"`
+	SenderName      *string          `json:"sender_name,omitempty"`
+	ToAddresses     *string          `json:"to_addresses,omitempty"`
+	CCAddresses     *string          `json:"cc_addresses,omitempty"`
+	BCCAddresses    *string          `json:"bcc_addresses,omitempty"`
+	Subject         *string          `json:"subject,omitempty"`
+	Attachments     []AttachmentInfo `json:"attachments"`
+	AttachmentCount int              `json:"attachment_count"`
+	Processed       bool             `json:"processed"`
+	ErrorMessage    *string          `json:"error_message,omitempty"`
+	ReceivedAt      *time.Time       `json:"received_at,omitempty"`
+	CreatedAt       time.Time        `json:"created_at"`
+	ProcessedAt     *time.Time       `json:"processed_at,omitempty"`
+	DocumentID      *string          `json:"document_id,omitempty"`
+}
+
+// PaginatedInboundEmails represents a paginated list of inbound emails.
+type PaginatedInboundEmails struct {
+	Items       []InboundEmailResponse `json:"items"`
+	Total       int                    `json:"total"`
+	Page        int                    `json:"page"`
+	PageSize    int                    `json:"page_size"`
+	Pages       int                    `json:"pages"`
+	HasNextPage bool                   `json:"has_next_page"`
+}
+
+// MailboxAttachment holds the binary content of a downloaded inbound email attachment.
+type MailboxAttachment struct {
+	Content     []byte
+	ContentType string
 }
 
 // SendDocumentOptions holds optional query parameters for the send endpoint.

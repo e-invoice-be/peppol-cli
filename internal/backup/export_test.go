@@ -2,6 +2,7 @@ package backup
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
 )
@@ -32,4 +33,10 @@ func SanitizeAttachmentFilenameForTesting(name string) string {
 // dedup behaviour can be exercised in isolation.
 func SafeAttachmentFilenamesForTesting(names []string) []string {
 	return safeAttachmentFilenames(names)
+}
+
+// RetryWaitForTesting exposes retryWait so the Retry-After cap can be tested
+// without sleeping.
+func RetryWaitForTesting(backoff time.Duration, err error) time.Duration {
+	return retryWait(backoff, err)
 }

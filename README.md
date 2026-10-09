@@ -87,6 +87,7 @@ peppol auth logout
 | `peppol inbox` | Browse received documents and invoices |
 | `peppol outbox` | Browse sent documents |
 | `peppol drafts` | Browse draft documents |
+| `peppol mailbox` | Browse inbound emails, download their attachments, and reprocess failed emails |
 | `peppol document` | Get, create, send, validate, and delete documents |
 | `peppol lookup` | Look up Peppol participants by ID or name |
 | `peppol validate` | Validate Peppol IDs, JSON invoices, and UBL documents |
@@ -110,6 +111,10 @@ peppol document send <document-id>
 
 # List received invoices
 peppol inbox invoices
+
+# List inbound emails that failed processing, then retry one
+peppol mailbox list --status failed
+peppol mailbox reprocess <email-id>
 
 # Validate a UBL document
 peppol validate ubl invoice.xml
