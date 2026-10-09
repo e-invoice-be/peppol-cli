@@ -69,7 +69,7 @@ The layout is recorded in `manifest.json` on the first run. Re-running with a di
 - **Layout mismatch** — same: aborts before any API call.
 - **Atomic writes** — every file is written via temp file + `fsync` + rename. A `kill -9` at any point leaves no half-written file visible under its final name.
 - **Path traversal** — attachment filenames and document IDs containing `..`, path separators, or absolute paths are rejected with a clear error naming the offending value.
-- **Retries** — transient errors (429, 5xx) retry up to 4 times with exponential backoff + jitter; non-transient errors propagate immediately.
+- **Retries** — transient errors (429, 5xx) retry up to 4 times with exponential backoff + jitter, or after the `Retry-After` wait (capped at 60 seconds) when a 429 response announces a longer one; non-transient errors propagate immediately.
 
 ## JSON output
 

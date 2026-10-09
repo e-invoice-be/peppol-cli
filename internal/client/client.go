@@ -11,15 +11,21 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/e-invoicebe/peppol-cli/internal/version"
 )
 
 const DefaultBaseURL = "https://api.e-invoice.be"
+
+// maxRetryAfter is the longest Retry-After wait the client accepts; longer
+// values are ignored.
+const maxRetryAfter = 24 * time.Hour
 
 var (
 	ErrUnauthorized = errors.New("authentication failed (invalid or missing API key)")
@@ -30,13 +36,53 @@ var (
 type APIError struct {
 	StatusCode int
 	Detail     string
+	// RetryAfter is the wait announced by the Retry-After header (sent with
+	// 429 responses). Zero when the header is absent.
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string {
+	msg := fmt.Sprintf("API error %d", e.StatusCode)
 	if e.Detail != "" {
-		return fmt.Sprintf("API error %d: %s", e.StatusCode, e.Detail)
+		msg += ": " + e.Detail
 	}
-	return fmt.Sprintf("API error %d", e.StatusCode)
+	if e.RetryAfter > 0 {
+		msg += fmt.Sprintf(" (retry after %s)", e.RetryAfter)
+	}
+	return msg
+}
+
+// newAPIError builds an APIError from a non-success response and its body.
+func newAPIError(resp *http.Response, body []byte) *APIError {
+	apiErr := &APIError{StatusCode: resp.StatusCode, Detail: errorDetail(body)}
+	// The API documents Retry-After as a number of seconds.
+	secs, err := strconv.ParseInt(resp.Header.Get("Retry-After"), 10, 64)
+	if err == nil && secs > 0 && secs <= int64(maxRetryAfter/time.Second) {
+		apiErr.RetryAfter = time.Duration(secs) * time.Second
+	}
+	return apiErr
+}
+
+// errorDetail extracts the detail of an error body: a string for most errors,
+// a list of validation errors for 422 responses.
+func errorDetail(body []byte) string {
+	var errResp ErrorResponse
+	if json.Unmarshal(body, &errResp) == nil {
+		return errResp.Detail
+	}
+	var valResp HTTPValidationError
+	if json.Unmarshal(body, &valResp) != nil {
+		return ""
+	}
+	msgs := make([]string, 0, len(valResp.Detail))
+	for _, v := range valResp.Detail {
+		loc := make([]string, 0, len(v.Loc))
+		for _, part := range v.Loc {
+			loc = append(loc, fmt.Sprint(part))
+		}
+		msgs = append(msgs, strings.Join(loc, ".")+": "+v.Msg)
+	}
+	return strings.Join(msgs, "; ")
 }
 
 // ClientOption configures the Client.
@@ -128,12 +174,7 @@ func (c *Client) GetMe() (*TenantPublic, error) {
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -177,12 +218,7 @@ func (c *Client) GetStats(startDate, endDate, aggregation string) (*StatsRespons
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -216,12 +252,7 @@ func (c *Client) GetDocument(documentID string) (*DocumentResponse, error) {
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -255,12 +286,7 @@ func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, erro
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -294,12 +320,7 @@ func (c *Client) ListAttachments(documentID string) ([]DocumentAttachment, error
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -333,12 +354,7 @@ func (c *Client) GetAttachment(documentID, attachmentID string) (*DocumentAttach
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -394,12 +410,7 @@ func (c *Client) AddAttachment(documentID, filePath string) (*DocumentAttachment
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(respBody, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, respBody)
 	}
 }
 
@@ -433,12 +444,7 @@ func (c *Client) DeleteAttachment(documentID, attachmentID string) (*DocumentAtt
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -481,12 +487,7 @@ func (c *Client) CreateDocumentJSON(filePath string, constructPDF bool) (*Docume
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -513,12 +514,7 @@ func (c *Client) CreateDocumentFromUBL(filePath string) (*DocumentResponse, erro
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -563,12 +559,7 @@ func (c *Client) CreateDocumentFromPDF(filePath, vendorTaxID, customerTaxID stri
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -620,12 +611,7 @@ func (c *Client) SendDocument(documentID string, opts SendDocumentOptions) (*Doc
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -659,12 +645,7 @@ func (c *Client) ValidateDocument(documentID string) (*ValidationResponse, error
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -698,12 +679,7 @@ func (c *Client) DeleteDocument(documentID string) (*DocumentDelete, error) {
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -737,12 +713,7 @@ func (c *Client) GetDocumentUBL(documentID string) (*DocumentUBL, error) {
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -862,12 +833,7 @@ func (c *Client) listDocuments(path string, params DocumentListParams) (*Paginat
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -899,6 +865,162 @@ func (c *Client) ListOutboxDrafts(params DocumentListParams) (*PaginatedDocument
 // ListDrafts calls GET /api/drafts/ and returns all draft documents.
 func (c *Client) ListDrafts(params DocumentListParams) (*PaginatedDocuments, error) {
 	return c.listDocuments("/api/drafts/", params)
+}
+
+// MailboxListParams holds query parameters for GET /api/mailbox/.
+type MailboxListParams struct {
+	Status       string
+	Processed    *bool // nil means no filter; the API ignores it when Status is set
+	ReceivedFrom string
+	ReceivedTo   string
+	Search       string
+	SortBy       string
+	SortOrder    string
+	Page         int
+	PageSize     int
+}
+
+// ListMailbox calls GET /api/mailbox/ and returns paginated inbound emails.
+func (c *Client) ListMailbox(params MailboxListParams) (*PaginatedInboundEmails, error) {
+	req, err := http.NewRequestWithContext(c.ctx, "GET", c.baseURL+"/api/mailbox/", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	q := req.URL.Query()
+	if params.Status != "" {
+		q.Set("status", params.Status)
+	}
+	if params.Processed != nil {
+		q.Set("processed", strconv.FormatBool(*params.Processed))
+	}
+	if params.ReceivedFrom != "" {
+		q.Set("received_from", params.ReceivedFrom)
+	}
+	if params.ReceivedTo != "" {
+		q.Set("received_to", params.ReceivedTo)
+	}
+	if params.Search != "" {
+		q.Set("search", params.Search)
+	}
+	if params.SortBy != "" {
+		q.Set("sort_by", params.SortBy)
+	}
+	if params.SortOrder != "" {
+		q.Set("sort_order", params.SortOrder)
+	}
+	if params.Page > 0 {
+		q.Set("page", strconv.Itoa(params.Page))
+	}
+	if params.PageSize > 0 {
+		q.Set("page_size", strconv.Itoa(params.PageSize))
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result PaginatedInboundEmails
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &result, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	default:
+		return nil, newAPIError(resp, body)
+	}
+}
+
+// GetMailboxEmail calls GET /api/mailbox/{inbound_email_id} and returns the inbound email.
+func (c *Client) GetMailboxEmail(emailID string) (*InboundEmailResponse, error) {
+	req, err := http.NewRequestWithContext(c.ctx, "GET", c.baseURL+"/api/mailbox/"+url.PathEscape(emailID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	return c.doMailboxEmail(req, http.StatusOK)
+}
+
+// DownloadMailboxAttachment calls GET /api/mailbox/{inbound_email_id}/attachments/{filename}
+// and returns the binary content with its Content-Type.
+func (c *Client) DownloadMailboxAttachment(emailID, filename string) (*MailboxAttachment, error) {
+	u := c.baseURL + "/api/mailbox/" + url.PathEscape(emailID) + "/attachments/" + url.PathEscape(filename)
+	req, err := http.NewRequestWithContext(c.ctx, "GET", u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return &MailboxAttachment{Content: body, ContentType: resp.Header.Get("Content-Type")}, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		return nil, newAPIError(resp, body)
+	}
+}
+
+// ReprocessMailboxEmail calls POST /api/mailbox/{inbound_email_id}/reprocess to retry
+// a failed inbound email. The API answers 202 Accepted with the email.
+func (c *Client) ReprocessMailboxEmail(emailID string) (*InboundEmailResponse, error) {
+	req, err := http.NewRequestWithContext(c.ctx, "POST", c.baseURL+"/api/mailbox/"+url.PathEscape(emailID)+"/reprocess", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	return c.doMailboxEmail(req, http.StatusAccepted)
+}
+
+// doMailboxEmail executes req and decodes an InboundEmailResponse when the
+// response has the expected success status.
+func (c *Client) doMailboxEmail(req *http.Request, successStatus int) (*InboundEmailResponse, error) {
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case successStatus:
+		var mail InboundEmailResponse
+		if err := json.Unmarshal(body, &mail); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &mail, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		return nil, newAPIError(resp, body)
+	}
 }
 
 // LookupPeppolID calls GET /api/lookup and returns Peppol participant information.
@@ -933,12 +1055,7 @@ func (c *Client) LookupPeppolID(peppolID string) (*PeppolIdLookupResponse, error
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -977,12 +1094,7 @@ func (c *Client) SearchPeppolParticipants(query, countryCode string) (*PeppolSea
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -1018,12 +1130,7 @@ func (c *Client) ValidatePeppolID(peppolID string) (*PeppolIdValidationResponse,
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -1075,12 +1182,7 @@ func (c *Client) validateJSONBody(data []byte) (*ValidationResponse, error) {
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 
@@ -1107,12 +1209,7 @@ func (c *Client) ValidateUBL(filePath string) (*ValidationResponse, error) {
 	case http.StatusUnauthorized:
 		return nil, ErrUnauthorized
 	default:
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		var errResp ErrorResponse
-		if json.Unmarshal(body, &errResp) == nil {
-			apiErr.Detail = errResp.Detail
-		}
-		return nil, apiErr
+		return nil, newAPIError(resp, body)
 	}
 }
 

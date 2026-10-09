@@ -1444,3 +1444,346 @@ func TestClient_WithContext_Cancellation(t *testing.T) {
 		}
 	}
 }
+
+// --- Mailbox ---
+
+func TestListMailbox_SendsFiltersAndDecodesPage(t *testing.T) {
+	var got url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/mailbox/" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		got = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"items": [{
+				"id": "mail-1",
+				"message_id": "<abc@mail.example.com>",
+				"sender_email": "billing@supplier.example",
+				"sender_name": "Supplier Billing",
+				"subject": "Invoice 2026-001",
+				"attachments": [{"filename": "invoice.pdf", "size": 102400, "content_type": "application/pdf"}],
+				"attachment_count": 1,
+				"processed": true,
+				"error_message": null,
+				"received_at": "2026-03-02T09:15:00Z",
+				"created_at": "2026-03-02T09:15:04Z",
+				"document_id": "doc-9"
+			}],
+			"total": 41, "page": 2, "page_size": 20, "pages": 3, "has_next_page": true
+		}`))
+	}))
+	defer srv.Close()
+
+	processed := false
+	c := NewClient("key", WithBaseURL(srv.URL))
+	result, err := c.ListMailbox(MailboxListParams{
+		Page:         2,
+		PageSize:     20,
+		Status:       "failed",
+		Processed:    &processed,
+		ReceivedFrom: "2026-03-01T00:00:00Z",
+		ReceivedTo:   "2026-03-31T23:59:59Z",
+		Search:       "invoice",
+		SortBy:       "created_at",
+		SortOrder:    "asc",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantQuery := map[string]string{
+		"page":          "2",
+		"page_size":     "20",
+		"status":        "failed",
+		"processed":     "false",
+		"received_from": "2026-03-01T00:00:00Z",
+		"received_to":   "2026-03-31T23:59:59Z",
+		"search":        "invoice",
+		"sort_by":       "created_at",
+		"sort_order":    "asc",
+	}
+	for k, want := range wantQuery {
+		if got.Get(k) != want {
+			t.Errorf("query %s = %q, want %q", k, got.Get(k), want)
+		}
+	}
+
+	if result.Total != 41 || result.Pages != 3 || !result.HasNextPage {
+		t.Errorf("unexpected pagination: %+v", result)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result.Items))
+	}
+	mail := result.Items[0]
+	if mail.ID != "mail-1" || mail.SenderEmail != "billing@supplier.example" {
+		t.Errorf("unexpected email: %+v", mail)
+	}
+	if mail.DocumentID == nil || *mail.DocumentID != "doc-9" {
+		t.Errorf("expected document_id doc-9, got %v", mail.DocumentID)
+	}
+	if mail.ErrorMessage != nil {
+		t.Errorf("expected nil error_message, got %q", *mail.ErrorMessage)
+	}
+	if mail.ReceivedAt == nil || !mail.ReceivedAt.Equal(time.Date(2026, 3, 2, 9, 15, 0, 0, time.UTC)) {
+		t.Errorf("unexpected received_at: %v", mail.ReceivedAt)
+	}
+	if len(mail.Attachments) != 1 || mail.Attachments[0].Filename != "invoice.pdf" {
+		t.Fatalf("unexpected attachments: %+v", mail.Attachments)
+	}
+	if mail.Attachments[0].Size == nil || *mail.Attachments[0].Size != 102400 {
+		t.Errorf("unexpected attachment size: %v", mail.Attachments[0].Size)
+	}
+}
+
+func TestListMailbox_OmitsUnsetFilters(t *testing.T) {
+	var rawQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawQuery = r.URL.RawQuery
+		w.Write([]byte(`{"items":[],"total":0,"page":1,"page_size":20,"pages":0,"has_next_page":false}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	if _, err := c.ListMailbox(MailboxListParams{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rawQuery != "" {
+		t.Errorf("expected no query parameters, got %q", rawQuery)
+	}
+}
+
+func TestGetMailboxEmail_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/mailbox/mail-7" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Write([]byte(`{
+			"id": "mail-7",
+			"message_id": "<m7@mail.example.com>",
+			"sender_email": "ap@vendor.example",
+			"sender_name": null,
+			"subject": null,
+			"attachments": [{"filename": "scan.png", "size": null, "content_type": null}],
+			"attachment_count": 1,
+			"processed": false,
+			"error_message": "No PDF attachment found",
+			"received_at": null,
+			"created_at": "2026-04-10T07:30:00Z",
+			"processed_at": null,
+			"document_id": null
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	mail, err := c.GetMailboxEmail("mail-7")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mail.MessageID != "<m7@mail.example.com>" {
+		t.Errorf("unexpected message_id: %q", mail.MessageID)
+	}
+	if mail.ErrorMessage == nil || *mail.ErrorMessage != "No PDF attachment found" {
+		t.Errorf("unexpected error_message: %v", mail.ErrorMessage)
+	}
+	if mail.Subject != nil || mail.ReceivedAt != nil || mail.DocumentID != nil {
+		t.Errorf("expected null fields to decode as nil: %+v", mail)
+	}
+	if mail.Attachments[0].Size != nil || mail.Attachments[0].ContentType != nil {
+		t.Errorf("expected null attachment size/content_type: %+v", mail.Attachments[0])
+	}
+}
+
+func TestGetMailboxEmail_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Inbound email not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, err := c.GetMailboxEmail("missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDownloadMailboxAttachment_ReturnsBytesAndContentType(t *testing.T) {
+	// PNG signature: binary content that is not valid UTF-8 or JSON.
+	content := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		// The filename is one path segment: space, slash and '#' must be escaped.
+		if got, want := r.URL.EscapedPath(), "/api/mailbox/mail-7/attachments/scan%20a%2Fb%231.png"; got != want {
+			t.Errorf("escaped path = %q, want %q", got, want)
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(content)
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	att, err := c.DownloadMailboxAttachment("mail-7", "scan a/b#1.png")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(att.Content, content) {
+		t.Errorf("content = %v, want %v", att.Content, content)
+	}
+	if att.ContentType != "image/png" {
+		t.Errorf("content type = %q, want image/png", att.ContentType)
+	}
+}
+
+func TestDownloadMailboxAttachment_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Email or attachment not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, err := c.DownloadMailboxAttachment("mail-7", "nope.pdf")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestReprocessMailboxEmail_Accepted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/mailbox/mail-7/reprocess" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(`{"id":"mail-7","message_id":"<m7@mail.example.com>","sender_email":"ap@vendor.example","processed":false,"created_at":"2026-04-10T07:30:00Z"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	mail, err := c.ReprocessMailboxEmail("mail-7")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mail.ID != "mail-7" || mail.SenderEmail != "ap@vendor.example" {
+		t.Errorf("unexpected email: %+v", mail)
+	}
+}
+
+func TestReprocessMailboxEmail_Conflict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Email is not in a reprocessable state"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, err := c.ReprocessMailboxEmail("mail-7")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %v", err)
+	}
+	if apiErr.StatusCode != 409 || apiErr.Detail != "Email is not in a reprocessable state" {
+		t.Errorf("unexpected API error: %+v", apiErr)
+	}
+}
+
+// --- Rate limiting (429) ---
+
+func TestAPIError_RateLimitCarriesRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Rate limit exceeded"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, err := c.ValidateJSONReader(strings.NewReader(`{}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %v", err)
+	}
+	if apiErr.RetryAfter != 30*time.Second {
+		t.Errorf("RetryAfter = %v, want 30s", apiErr.RetryAfter)
+	}
+	if got, want := err.Error(), "API error 429: Rate limit exceeded (retry after 30s)"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+}
+
+func TestAPIError_IgnoresUnusableRetryAfter(t *testing.T) {
+	for _, header := range []string{"soon", "1.5", "0", "-5", "999999999999", "99999999999999999999"} {
+		t.Run(header, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Retry-After", header)
+				w.WriteHeader(http.StatusTooManyRequests)
+				w.Write([]byte(`{"detail":"Rate limit exceeded"}`))
+			}))
+			defer srv.Close()
+
+			c := NewClient("key", WithBaseURL(srv.URL))
+			_, err := c.ValidateJSONReader(strings.NewReader(`{}`))
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("expected APIError, got %v", err)
+			}
+			if apiErr.RetryAfter != 0 {
+				t.Errorf("RetryAfter = %v, want 0", apiErr.RetryAfter)
+			}
+			if got, want := err.Error(), "API error 429: Rate limit exceeded"; got != want {
+				t.Errorf("error = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// --- Validation errors (422) ---
+
+func TestAPIError_ValidationDetailList(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.Write([]byte(`{"detail":[
+			{"loc":["query","page_size"],"msg":"Input should be less than or equal to 100","type":"less_than_equal"},
+			{"loc":["body","items",0,"name"],"msg":"Field required","type":"missing"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, err := c.ListMailbox(MailboxListParams{PageSize: 500})
+	want := "API error 422: query.page_size: Input should be less than or equal to 100; body.items.0.name: Field required"
+	if err == nil || err.Error() != want {
+		t.Errorf("error = %v\nwant    %s", err, want)
+	}
+}
+
+func TestValidatePeppolID_NullBusinessCard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"is_valid":false,"dns_valid":true,"business_card_valid":false,"supported_document_types":[],"business_card":null}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	result, err := c.ValidatePeppolID("0208:0123456789")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.BusinessCard != nil {
+		t.Errorf("expected nil business card, got %+v", result.BusinessCard)
+	}
+	if !result.DNSValid || result.IsValid {
+		t.Errorf("unexpected flags: %+v", result)
+	}
+}

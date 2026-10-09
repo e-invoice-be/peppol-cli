@@ -53,6 +53,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newInboxCmd())
 	cmd.AddCommand(newOutboxCmd())
 	cmd.AddCommand(newDraftsCmd())
+	cmd.AddCommand(newMailboxCmd())
 	cmd.AddCommand(newLookupCmd())
 	cmd.AddCommand(newValidateCmd())
 	cmd.AddCommand(newBackupCmd())

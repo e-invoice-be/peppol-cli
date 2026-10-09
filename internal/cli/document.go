@@ -174,13 +174,27 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	if full && len(doc.Items) > 0 {
 		fmt.Fprintln(r.Writer())
 		headers := []string{"#", "Description", "Qty", "Unit Price", "Amount"}
+		hasAttributes := false
+		for _, item := range doc.Items {
+			if len(item.ItemAttributes) > 0 {
+				hasAttributes = true
+				break
+			}
+		}
+		if hasAttributes {
+			headers = append(headers, "Attributes")
+		}
 		var rows [][]string
 		for i, item := range doc.Items {
 			desc := deref(item.Description, "-")
 			qty := deref(item.Quantity, "-")
 			price := deref(item.UnitPrice, "-")
 			amount := deref(item.Amount, "-")
-			rows = append(rows, []string{fmt.Sprintf("%d", i+1), desc, qty, price, amount})
+			row := []string{fmt.Sprintf("%d", i+1), desc, qty, price, amount}
+			if hasAttributes {
+				row = append(row, formatItemAttributes(item.ItemAttributes))
+			}
+			rows = append(rows, row)
 		}
 		if err := r.Table(headers, rows); err != nil {
 			return err
@@ -188,6 +202,19 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	}
 
 	return nil
+}
+
+// formatItemAttributes renders item attributes as "name=value, name".
+func formatItemAttributes(attrs []client.ItemAttribute) string {
+	parts := make([]string, 0, len(attrs))
+	for _, a := range attrs {
+		if a.Value != nil {
+			parts = append(parts, a.Name+"="+*a.Value)
+		} else {
+			parts = append(parts, a.Name)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func newDocumentTimelineCmd() *cobra.Command {
@@ -389,10 +416,26 @@ func runDocumentCreatePDF(cmd *cobra.Command, args []string) error {
 		return r.JSON(doc)
 	}
 
+	return renderPDFCreateResult(r, doc)
+}
+
+// renderPDFCreateResult renders the result of a PDF conversion. A failed
+// conversion still returns a document.
+func renderPDFCreateResult(r *output.Renderer, doc *client.DocumentCreateFromPdfResponse) error {
 	if doc.Success {
 		r.Success("Document created from PDF successfully.")
 	} else {
-		r.Error("Document created but may require manual review.")
+		r.Error("PDF conversion failed. The document may require manual review.")
+		var errPairs []output.KVPair
+		if doc.ErrorType != nil {
+			errPairs = append(errPairs, output.KVPair{Key: "Error Type", Value: *doc.ErrorType})
+		}
+		if doc.ErrorMessage != nil {
+			errPairs = append(errPairs, output.KVPair{Key: "Error Message", Value: *doc.ErrorMessage})
+		}
+		if err := r.KeyValue(errPairs); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintln(r.Writer())
 	return renderDocumentSections(r, &doc.DocumentResponse, false)
@@ -413,6 +456,7 @@ func newDocumentSendCmd() *cobra.Command {
 	cmd.Flags().String("receiver-peppol-id", "", "Override receiver Peppol ID")
 	cmd.Flags().String("receiver-peppol-scheme", "", "Override receiver Peppol scheme")
 	cmd.Flags().String("email", "", "Send notification email")
+	_ = cmd.Flags().MarkDeprecated("email", "the API has deprecated this parameter and may remove it")
 	return cmd
 }
 
