@@ -2,7 +2,11 @@
 
 **Send and receive e-invoices over the Peppol network from your terminal.**
 
-CLI for the [e-invoice.be](https://e-invoice.be) Peppol Access Point API.
+The official CLI for the [e-invoice.be Peppol API](https://e-invoice.be/peppol-api), a certified Peppol Access Point. Create documents from JSON, UBL, or PDF; the API handles Peppol BIS 3.0 validation, UBL generation, and routing. Send invoices, browse your inbox and outbox, follow each document's timeline, look up participants, and validate documents, all from the command line. Sandbox keys work the same as production keys.
+
+- **Peppol API:** [e-invoice.be/peppol-api](https://e-invoice.be/peppol-api)
+- **API docs:** [docs.e-invoice.be](https://docs.e-invoice.be)
+- **Get an API key:** [app.e-invoice.be/register](https://app.e-invoice.be/register)
 
 [![Release](https://img.shields.io/github/v/release/e-invoice-be/peppol-cli)](https://github.com/e-invoice-be/peppol-cli/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
