@@ -30,6 +30,10 @@ peppol document create json invoice.json --construct-pdf --json
 
 - `--construct-pdf`: auto-generates a PDF representation of the invoice
 - Returns the created document with its ID
+- Credit notes: set `preceding_invoice_id` (BT-25) and `preceding_invoice_date` (BT-26, `YYYY-MM-DD`) to reference the invoice that the credit note corrects
+- Line items: `name` (BT-153) is the item name; `description` (BT-154) is the longer item description. When you omit `name`, the API uses `description` as the item name. `price_base_quantity` (BT-149, default `1`) is the number of units that `unit_price` applies to, for example `100` for a price per 100 units
+
+In text output, `document get` shows the preceding invoice when it is set. With `--full`, the line-item table adds a `Name` column when an item has a name and a `Base Qty` column when an item has a price base quantity other than 1.
 
 ### From UBL/XML
 

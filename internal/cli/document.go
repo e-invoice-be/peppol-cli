@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/e-invoicebe/peppol-cli/internal/client"
@@ -96,6 +97,12 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	if doc.DueDate != nil {
 		pairs = append(pairs, output.KVPair{Key: "Due Date", Value: *doc.DueDate})
 	}
+	if doc.PrecedingInvoiceID != nil {
+		pairs = append(pairs, output.KVPair{Key: "Preceding Invoice", Value: *doc.PrecedingInvoiceID})
+	}
+	if doc.PrecedingInvoiceDate != nil {
+		pairs = append(pairs, output.KVPair{Key: "Preceding Invoice Date", Value: *doc.PrecedingInvoiceDate})
+	}
 	pairs = append(pairs, output.KVPair{Key: "Created", Value: doc.CreatedAt.Format("2006-01-02")})
 	if err := r.KeyValue(pairs); err != nil {
 		return err
@@ -173,24 +180,41 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	// Line Items section (only with --full)
 	if full && len(doc.Items) > 0 {
 		fmt.Fprintln(r.Writer())
-		headers := []string{"#", "Description", "Qty", "Unit Price", "Amount"}
-		hasAttributes := false
+		hasName, hasBaseQty, hasAttributes := false, false, false
 		for _, item := range doc.Items {
+			if item.Name != nil && *item.Name != "" {
+				hasName = true
+			}
+			if !isDefaultPriceBaseQuantity(item.PriceBaseQuantity) {
+				hasBaseQty = true
+			}
 			if len(item.ItemAttributes) > 0 {
 				hasAttributes = true
-				break
 			}
 		}
+		headers := []string{"#"}
+		if hasName {
+			headers = append(headers, "Name")
+		}
+		headers = append(headers, "Description", "Qty", "Unit Price")
+		if hasBaseQty {
+			headers = append(headers, "Base Qty")
+		}
+		headers = append(headers, "Amount")
 		if hasAttributes {
 			headers = append(headers, "Attributes")
 		}
 		var rows [][]string
 		for i, item := range doc.Items {
-			desc := deref(item.Description, "-")
-			qty := deref(item.Quantity, "-")
-			price := deref(item.UnitPrice, "-")
-			amount := deref(item.Amount, "-")
-			row := []string{fmt.Sprintf("%d", i+1), desc, qty, price, amount}
+			row := []string{fmt.Sprintf("%d", i+1)}
+			if hasName {
+				row = append(row, deref(item.Name, "-"))
+			}
+			row = append(row, deref(item.Description, "-"), deref(item.Quantity, "-"), deref(item.UnitPrice, "-"))
+			if hasBaseQty {
+				row = append(row, deref(item.PriceBaseQuantity, "1"))
+			}
+			row = append(row, deref(item.Amount, "-"))
 			if hasAttributes {
 				row = append(row, formatItemAttributes(item.ItemAttributes))
 			}
@@ -202,6 +226,16 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	}
 
 	return nil
+}
+
+// isDefaultPriceBaseQuantity reports whether a line item's price base
+// quantity (BT-149) is absent or equal to the API default of 1.
+func isDefaultPriceBaseQuantity(q *string) bool {
+	if q == nil || *q == "" {
+		return true
+	}
+	v, err := strconv.ParseFloat(*q, 64)
+	return err == nil && v == 1
 }
 
 // formatItemAttributes renders item attributes as "name=value, name".
