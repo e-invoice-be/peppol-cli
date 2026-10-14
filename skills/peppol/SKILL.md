@@ -1,12 +1,28 @@
 ---
-name: peppol-cli
-description: Manage Peppol e-invoicing from the command line. Create, send, validate, and receive invoices via the Peppol network through the e-invoice.be Access Point API.
+name: peppol
+description: Create, send, validate, and receive invoices via the Peppol network through the e-invoice.be Access Point API.
 allowed-tools: Bash(peppol:*)
 ---
 
 # Peppol CLI
 
 A CLI to manage e-invoices on the [Peppol](https://peppol.org) network through the [e-invoice.be](https://e-invoice.be) Access Point API.
+
+More information: https://e-invoice.be/peppol-cli
+
+## Installation
+
+If `peppol` is not on PATH, install it:
+
+```bash
+# macOS / Linux (Homebrew)
+brew install e-invoice-be/tap/peppol-cli
+
+# Any platform with Go
+go install github.com/e-invoice-be/peppol-cli/cmd/peppol@latest
+```
+
+Binaries for Linux (amd64, arm64) and Windows are on [GitHub Releases](https://github.com/e-invoice-be/peppol-cli/releases). Extract the archive and put `peppol` (or `peppol.exe`) on PATH.
 
 ## Prerequisites
 
