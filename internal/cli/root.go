@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/e-invoicebe/peppol-cli/internal/client"
-	"github.com/e-invoicebe/peppol-cli/internal/output"
-	"github.com/e-invoicebe/peppol-cli/internal/version"
+	"github.com/e-invoice-be/peppol-cli/internal/client"
+	"github.com/e-invoice-be/peppol-cli/internal/output"
+	"github.com/e-invoice-be/peppol-cli/internal/version"
 	"github.com/spf13/cobra"
 )
 

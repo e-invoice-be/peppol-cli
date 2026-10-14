@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/e-invoicebe/peppol-cli/internal/version"
+	"github.com/e-invoice-be/peppol-cli/internal/version"
 	"github.com/spf13/cobra"
 )
 

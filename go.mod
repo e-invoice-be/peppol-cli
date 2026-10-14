@@ -1,4 +1,4 @@
-module github.com/e-invoicebe/peppol-cli
+module github.com/e-invoice-be/peppol-cli
 
 go 1.26.1
 

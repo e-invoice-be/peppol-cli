@@ -56,7 +56,7 @@ Download the latest `.zip` for Windows from [GitHub Releases](https://github.com
 ### Go install (cross-platform)
 
 ```bash
-go install github.com/e-invoicebe/peppol-cli/cmd/peppol@latest
+go install github.com/e-invoice-be/peppol-cli/cmd/peppol@latest
 ```
 
 ## Authentication

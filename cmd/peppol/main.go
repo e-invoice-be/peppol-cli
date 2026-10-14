@@ -1,6 +1,6 @@
 package main
 
-import "github.com/e-invoicebe/peppol-cli/internal/cli"
+import "github.com/e-invoice-be/peppol-cli/internal/cli"
 
 func main() {
 	cli.Execute()

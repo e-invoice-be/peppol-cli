@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/e-invoicebe/peppol-cli/internal/version"
+	"github.com/e-invoice-be/peppol-cli/internal/version"
 )
 
 const DefaultBaseURL = "https://api.e-invoice.be"
