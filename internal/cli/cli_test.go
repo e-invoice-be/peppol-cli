@@ -2457,3 +2457,49 @@ func TestRenderPDFCreateResult_Success(t *testing.T) {
 		t.Errorf("successful conversion must not show error rows\nGot:\n%s", out)
 	}
 }
+
+// --- preceding invoice (BT-25/26), item name (BT-153), price base quantity (BT-149) ---
+
+func TestRenderDocumentSections_ShowsPrecedingInvoiceAndItemFields(t *testing.T) {
+	doc := &client.DocumentResponse{
+		ID:                   "doc-cn-1",
+		PrecedingInvoiceID:   strPtr("INV-001"),
+		PrecedingInvoiceDate: strPtr("2026-01-01"),
+		Items: []client.LineItem{
+			{Name: strPtr("Wireless mouse"), Description: strPtr("Ergonomic"), UnitPrice: strPtr("12.50"), PriceBaseQuantity: strPtr("100"), Amount: strPtr("1.25")},
+			{Description: strPtr("Shipping"), PriceBaseQuantity: strPtr("1"), Amount: strPtr("5.00")},
+		},
+	}
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, doc, true); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"Preceding Invoice", "INV-001", "2026-01-01", "NAME", "Wireless mouse", "BASE QTY", "100"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderDocumentSections_HidesPrecedingInvoiceAndItemFieldsWhenUnset(t *testing.T) {
+	doc := &client.DocumentResponse{
+		ID: "doc-1",
+		Items: []client.LineItem{
+			{Description: strPtr("Shipping"), PriceBaseQuantity: strPtr("1.00"), Amount: strPtr("5.00")},
+			{Description: strPtr("Handling"), Amount: strPtr("2.00")},
+		},
+	}
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, doc, true); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	for _, unwanted := range []string{"Preceding Invoice", "NAME", "BASE QTY"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("output must not contain %q\nGot:\n%s", unwanted, out)
+		}
+	}
+}

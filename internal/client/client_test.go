@@ -1787,3 +1787,52 @@ func TestValidatePeppolID_NullBusinessCard(t *testing.T) {
 		t.Errorf("unexpected flags: %+v", result)
 	}
 }
+
+func TestGetDocument_PrecedingInvoiceAndLineItemFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"id": "doc-cn-1",
+			"created_at": "2026-01-15T10:30:00Z",
+			"document_type": "CREDIT_NOTE",
+			"preceding_invoice_id": "INV-001",
+			"preceding_invoice_date": "2026-01-01",
+			"items": [{"name": "Wireless mouse", "description": "Ergonomic, 2.4 GHz", "unit_price": "12.50", "price_base_quantity": "100"}]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	doc, err := c.GetDocument("doc-cn-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if doc.PrecedingInvoiceID == nil || *doc.PrecedingInvoiceID != "INV-001" {
+		t.Errorf("unexpected preceding_invoice_id: %v", doc.PrecedingInvoiceID)
+	}
+	if doc.PrecedingInvoiceDate == nil || *doc.PrecedingInvoiceDate != "2026-01-01" {
+		t.Errorf("unexpected preceding_invoice_date: %v", doc.PrecedingInvoiceDate)
+	}
+	if len(doc.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(doc.Items))
+	}
+	item := doc.Items[0]
+	if item.Name == nil || *item.Name != "Wireless mouse" {
+		t.Errorf("unexpected item name: %v", item.Name)
+	}
+	if item.PriceBaseQuantity == nil || *item.PriceBaseQuantity != "100" {
+		t.Errorf("unexpected price_base_quantity: %v", item.PriceBaseQuantity)
+	}
+}
+
+func TestDocumentResponse_NewFieldsOmittedWhenUnset(t *testing.T) {
+	b, err := json.Marshal(DocumentResponse{ID: "doc-1", Items: []LineItem{{}}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, key := range []string{"preceding_invoice_id", "preceding_invoice_date", `"name"`, "price_base_quantity"} {
+		if strings.Contains(string(b), key) {
+			t.Errorf("expected %s to be omitted, got %s", key, b)
+		}
+	}
+}

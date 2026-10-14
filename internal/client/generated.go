@@ -140,6 +140,8 @@ type DocumentResponse struct {
 	InvoiceID                  *string           `json:"invoice_id,omitempty"`
 	InvoiceDate                *string           `json:"invoice_date,omitempty"`
 	DueDate                    *string           `json:"due_date,omitempty"`
+	PrecedingInvoiceID         *string           `json:"preceding_invoice_id,omitempty"`   // BT-25
+	PrecedingInvoiceDate       *string           `json:"preceding_invoice_date,omitempty"` // BT-26
 	BillingAddress             *string           `json:"billing_address,omitempty"`
 	BillingAddressRecipient    *string           `json:"billing_address_recipient,omitempty"`
 	ShippingAddress            *string           `json:"shipping_address,omitempty"`
@@ -171,16 +173,18 @@ type DocumentResponse struct {
 
 // LineItem represents a single line item in a document.
 type LineItem struct {
-	Description    *string         `json:"description,omitempty"`
-	Quantity       *string         `json:"quantity,omitempty"`
-	Unit           *string         `json:"unit,omitempty"`
-	UnitPrice      *string         `json:"unit_price,omitempty"`
-	Amount         *string         `json:"amount,omitempty"`
-	TaxRate        *string         `json:"tax_rate,omitempty"`
-	Tax            *string         `json:"tax,omitempty"`
-	ProductCode    *string         `json:"product_code,omitempty"`
-	Date           *string         `json:"date,omitempty"`
-	ItemAttributes []ItemAttribute `json:"item_attributes,omitempty"`
+	Name              *string         `json:"name,omitempty"` // BT-153
+	Description       *string         `json:"description,omitempty"`
+	Quantity          *string         `json:"quantity,omitempty"`
+	Unit              *string         `json:"unit,omitempty"`
+	UnitPrice         *string         `json:"unit_price,omitempty"`
+	PriceBaseQuantity *string         `json:"price_base_quantity,omitempty"` // BT-149, API default "1"
+	Amount            *string         `json:"amount,omitempty"`
+	TaxRate           *string         `json:"tax_rate,omitempty"`
+	Tax               *string         `json:"tax,omitempty"`
+	ProductCode       *string         `json:"product_code,omitempty"`
+	Date              *string         `json:"date,omitempty"`
+	ItemAttributes    []ItemAttribute `json:"item_attributes,omitempty"`
 }
 
 // ItemAttribute represents an item-level attribute (BT-160 name, BT-161 value).
