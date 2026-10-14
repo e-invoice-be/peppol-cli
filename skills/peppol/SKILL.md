@@ -1,6 +1,6 @@
 ---
-name: peppol-cli
-description: Manage Peppol e-invoicing from the command line. Create, send, validate, and receive invoices via the Peppol network through the e-invoice.be Access Point API.
+name: peppol
+description: Create, send, validate, and receive invoices via the Peppol network through the e-invoice.be Access Point API.
 allowed-tools: Bash(peppol:*)
 ---
 
