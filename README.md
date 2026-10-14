@@ -63,6 +63,16 @@ Download the latest `.zip` for Windows from [GitHub Releases](https://github.com
 go install github.com/e-invoice-be/peppol-cli/cmd/peppol@latest
 ```
 
+## Agent Skill
+
+Use the CLI from AI coding agents (Claude Code, Cursor, Codex, and others) with the `peppol` agent skill:
+
+```bash
+npx skills add e-invoice-be/peppol-cli
+```
+
+This installs the [`peppol` skill](skills/peppol/SKILL.md), which tells your agent how to drive the `peppol` CLI. See [e-invoice.be/peppol-cli](https://e-invoice.be/peppol-cli) for more.
+
 ## Authentication
 
 Authenticate with your e-invoice.be account:
