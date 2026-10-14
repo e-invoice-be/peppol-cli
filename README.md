@@ -1,4 +1,4 @@
-# peppol
+# e-invoice.be Peppol CLI
 
 **Send and receive e-invoices over the Peppol network from your terminal.**
 
