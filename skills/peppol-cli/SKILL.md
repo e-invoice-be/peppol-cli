@@ -8,6 +8,22 @@ allowed-tools: Bash(peppol:*)
 
 A CLI to manage e-invoices on the [Peppol](https://peppol.org) network through the [e-invoice.be](https://e-invoice.be) Access Point API.
 
+More information: https://e-invoice.be/peppol-cli
+
+## Installation
+
+If `peppol` is not on PATH, install it:
+
+```bash
+# macOS / Linux (Homebrew)
+brew install e-invoice-be/tap/peppol-cli
+
+# Any platform with Go
+go install github.com/e-invoice-be/peppol-cli/cmd/peppol@latest
+```
+
+Binaries for Linux (amd64, arm64) and Windows are on [GitHub Releases](https://github.com/e-invoice-be/peppol-cli/releases). Extract the archive and put `peppol` (or `peppol.exe`) on PATH.
+
 ## Prerequisites
 
 The `peppol` command must be available on PATH:
