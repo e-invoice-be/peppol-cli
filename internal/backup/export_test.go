@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/e-invoicebe/peppol-cli/internal/client"
+	"github.com/e-invoice-be/peppol-cli/internal/client"
 )
 
 // FingerprintForTesting exposes fingerprintAPIKey for tests in the external

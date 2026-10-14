@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/e-invoicebe/peppol-cli/internal/client"
-	"github.com/e-invoicebe/peppol-cli/internal/version"
+	"github.com/e-invoice-be/peppol-cli/internal/client"
+	"github.com/e-invoice-be/peppol-cli/internal/version"
 )
 
 // Layout selects the on-disk shape of the backup.

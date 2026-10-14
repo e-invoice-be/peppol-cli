@@ -3,9 +3,9 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE    ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 LDFLAGS := -s -w \
-	-X github.com/e-invoicebe/peppol-cli/internal/version.Version=$(VERSION) \
-	-X github.com/e-invoicebe/peppol-cli/internal/version.Commit=$(COMMIT) \
-	-X github.com/e-invoicebe/peppol-cli/internal/version.Date=$(DATE)
+	-X github.com/e-invoice-be/peppol-cli/internal/version.Version=$(VERSION) \
+	-X github.com/e-invoice-be/peppol-cli/internal/version.Commit=$(COMMIT) \
+	-X github.com/e-invoice-be/peppol-cli/internal/version.Date=$(DATE)
 
 .PHONY: build test lint generate release-dry clean
 

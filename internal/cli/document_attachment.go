@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/e-invoicebe/peppol-cli/internal/client"
-	"github.com/e-invoicebe/peppol-cli/internal/output"
+	"github.com/e-invoice-be/peppol-cli/internal/client"
+	"github.com/e-invoice-be/peppol-cli/internal/output"
 	"github.com/spf13/cobra"
 )
 

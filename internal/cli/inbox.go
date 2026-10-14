@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/e-invoicebe/peppol-cli/internal/client"
+	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/spf13/cobra"
 )
 

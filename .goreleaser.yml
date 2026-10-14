@@ -7,9 +7,9 @@ builds:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X github.com/e-invoicebe/peppol-cli/internal/version.Version={{.Version}}
-      - -X github.com/e-invoicebe/peppol-cli/internal/version.Commit={{.ShortCommit}}
-      - -X github.com/e-invoicebe/peppol-cli/internal/version.Date={{.Date}}
+      - -X github.com/e-invoice-be/peppol-cli/internal/version.Version={{.Version}}
+      - -X github.com/e-invoice-be/peppol-cli/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/e-invoice-be/peppol-cli/internal/version.Date={{.Date}}
     goos:
       - linux
       - darwin

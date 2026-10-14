@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/e-invoicebe/peppol-cli/internal/backup"
-	"github.com/e-invoicebe/peppol-cli/internal/client"
+	"github.com/e-invoice-be/peppol-cli/internal/backup"
+	"github.com/e-invoice-be/peppol-cli/internal/client"
 )
 
 // fakeBackend builds a stub e-invoice.be backend with the minimum endpoints
