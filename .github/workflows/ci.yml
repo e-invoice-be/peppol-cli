@@ -18,9 +18,24 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: go mod tidy
+        run: go mod tidy -diff
       - uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          # Pinned so new linter releases don't break CI unexpectedly.
+          # Use the same version locally (README / CLAUDE.md).
+          version: v2.15.0
+
+  vuln:
+    name: Vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   test:
     name: Test
@@ -30,14 +45,34 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./... -race
+      - name: Test with coverage
+        run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
+      - name: Coverage summary
+        run: |
+          {
+            echo '### Coverage'
+            echo '```'
+            go tool cover -func=coverage.out | tail -n 25
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Enforce minimum coverage
+        run: ./scripts/check-coverage.sh coverage.out 85
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
 
   build:
     name: Build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - run: go build ./cmd/peppol/
+        env:
+          GOOS: ${{ matrix.goos }}

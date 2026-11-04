@@ -46,7 +46,7 @@ func Load() (*Config, error) {
 	}
 
 	path := filepath.Join(dir, configFile)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the CLI's own config file under ConfigDir()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &Config{
@@ -73,7 +73,7 @@ func Save(cfg *Config) error {
 		return err
 	}
 
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
@@ -83,7 +83,7 @@ func Save(cfg *Config) error {
 	}
 
 	path := filepath.Join(dir, configFile)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("writing config: %w", err)
 	}
 	return nil
@@ -92,7 +92,7 @@ func Save(cfg *Config) error {
 // LoadFrom reads config from a specific directory (for testing).
 func LoadFrom(dir string) (*Config, error) {
 	path := filepath.Join(dir, configFile)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the config file inside the given config dir
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &Config{Workspaces: make(map[string]Workspace)}, nil
@@ -111,14 +111,14 @@ func LoadFrom(dir string) (*Config, error) {
 
 // SaveTo writes config to a specific directory (for testing).
 func SaveTo(dir string, cfg *Config) error {
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dir, configFile), data, 0600)
+	return os.WriteFile(filepath.Join(dir, configFile), data, 0o600)
 }
 
 // AddWorkspace adds a named workspace. Returns an error if it already exists.

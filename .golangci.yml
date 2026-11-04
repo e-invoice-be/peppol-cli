@@ -2,11 +2,36 @@ version: "2"
 
 linters:
   enable:
+    # Default set
     - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
+    # Correctness / bug finders
+    - bodyclose     # unclosed HTTP response bodies
+    - noctx         # HTTP requests without a context (Ctrl-C must cancel them)
+    - contextcheck  # functions that drop an inherited context
+    - errorlint     # wrapped-error comparisons (errors.Is / errors.As)
+    - errname       # Err* sentinels / *Error types
+    - nilerr        # returning nil while holding a non-nil error
+    - gosec         # security issues (file perms, path inclusion, ...)
+    - copyloopvar   # redundant loop variable copies (Go >= 1.22)
+    - unparam       # always-same params / unused results
+    # Style / simplification
+    - gocritic
+    - revive
+    - misspell
+    - unconvert
+    - usestdlibvars
+    - perfsprint
+    - prealloc
+    - thelper
+    - nolintlint
+    # Complexity (generous: CLI renderers are long but linear)
+    - gocyclo
+    - gocognit
+
   settings:
     errcheck:
       exclude-functions:
@@ -17,8 +42,88 @@ linters:
         - (net/http.ResponseWriter).Write
         - (*encoding/json.Encoder).Encode
         - os.Unsetenv
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # struct layout churn for no practical gain in a CLI
+        - shadow         # `err` shadowing is idiomatic Go and very noisy
+
+    gosec:
+      excludes:
+        - G104 # unhandled errors: already covered by errcheck (with its exclude list)
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - hugeParam      # API option/param structs are passed by value on purpose
+        - rangeValCopy   # copying API response structs while rendering is fine
+        - unnamedResult  # naming results is a style preference, not a defect
+        - sprintfQuotedString # "%s" inside XML/MIME literals is intentional; %q would apply Go escaping
+
+    revive:
+      # Explicit rule set: the defaults require doc comments on every export,
+      # which we deliberately don't enforce.
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: if-return
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: var-declaration
+        - name: var-naming
+
+    misspell:
+      locale: US
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+    gocyclo:
+      min-complexity: 30
+
+    gocognit:
+      min-complexity: 50
+
   exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
     rules:
       - path: _test\.go
         linters:
           - errcheck
+      # Tests read/write fixtures under t.TempDir() and run httptest handlers;
+      # path-inclusion, file-permission, int-conversion and form-parsing
+      # findings are not meaningful there.
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G(115|120|301|304|306)"
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/e-invoice-be/peppol-cli

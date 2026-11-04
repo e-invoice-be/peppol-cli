@@ -8,7 +8,19 @@ Go CLI for the [e-invoice.be](https://e-invoice.be) Peppol Access Point API.
 go build -o peppol ./cmd/peppol   # Build binary
 go test ./...                       # Run all tests
 go vet ./...                        # Static analysis
+make lint                           # golangci-lint v2.15.0 (config: .golangci.yml)
+make fmt                            # gofumpt + goimports via golangci-lint
+make vuln                           # govulncheck
+make cover                          # tests + coverage, fails below 85% total
+make check                          # everything CI runs (tidy, lint, vuln, cover)
 ```
+
+## Code Quality
+
+- `.golangci.yml` is strict (gosec, errorlint, noctx, gocritic, revive, ...). Fix findings rather than suppressing them; `//nolint` needs a specific linter and a `// reason` (enforced by nolintlint).
+- HTTP requests must carry the command context (`http.NewRequestWithContext(cmd.Context(), ...)`) so Ctrl-C cancels them; compare errors with `errors.Is`/`errors.As`.
+- CI enforces `go mod tidy`, lint, govulncheck, race tests and the coverage floor; run `make check` before pushing.
+- Tests must never touch the real config dir, keyring or network: use `t.TempDir()`, `t.Setenv`, and the fake-API helpers in `internal/cli/harness_extra_test.go`.
 
 ## Project Structure
 

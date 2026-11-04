@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -17,7 +18,7 @@ func FingerprintForTesting(apiKey string) string {
 // exercise the path-validation guards without standing up a full HTTP stack.
 // Only compiled during `go test`.
 func PersistEnvelopeForTesting(dir string, layout Layout, httpClient *http.Client, doc client.DocumentResponse, attachments []client.DocumentAttachment) error {
-	return persistEnvelope(dir, layout, httpClient, archiveEntry{
+	return persistEnvelope(context.Background(), dir, layout, httpClient, archiveEntry{
 		Document:    doc,
 		Attachments: attachments,
 	})
@@ -30,7 +31,7 @@ func SanitizeAttachmentFilenameForTesting(name string) string {
 }
 
 // SafeAttachmentFilenamesForTesting exposes safeAttachmentFilenames so the
-// dedup behaviour can be exercised in isolation.
+// dedup behavior can be exercised in isolation.
 func SafeAttachmentFilenamesForTesting(names []string) []string {
 	return safeAttachmentFilenames(names)
 }

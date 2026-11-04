@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,9 +10,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newAttachmentCmd() *cobra.Command {
@@ -103,7 +105,7 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 
 	outputPath, _ := cmd.Flags().GetString("output")
 	if outputPath != "" {
-		return downloadAttachment(att, outputPath)
+		return downloadAttachment(cmd.Context(), att, outputPath)
 	}
 
 	r := output.FromContext(cmd.Context())
@@ -120,18 +122,26 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 	})
 }
 
-func downloadAttachment(att *client.DocumentAttachment, outputPath string) error {
+func downloadAttachment(ctx context.Context, att *client.DocumentAttachment, outputPath string) error {
 	if att.FileURL == nil {
-		return &ExitError{Err: fmt.Errorf("attachment has no download URL"), Code: 1}
+		return &ExitError{Err: errors.New("attachment has no download URL"), Code: 1}
 	}
 
-	resp, err := http.Get(*att.FileURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, *att.FileURL, http.NoBody)
+	if err != nil {
+		return &ExitError{Err: fmt.Errorf("downloading attachment: %w", err), Code: 1}
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return &ExitError{Err: fmt.Errorf("downloading attachment: %w", err), Code: 1}
 	}
 	defer resp.Body.Close()
 
-	f, err := os.Create(outputPath)
+	if resp.StatusCode != http.StatusOK {
+		return &ExitError{Err: fmt.Errorf("downloading attachment: HTTP %d", resp.StatusCode), Code: 1}
+	}
+
+	f, err := os.Create(outputPath) //nolint:gosec // G304: --output path is supplied by the user on purpose
 	if err != nil {
 		return &ExitError{Err: fmt.Errorf("creating output file: %w", err), Code: 1}
 	}
@@ -235,10 +245,10 @@ func runAttachmentDelete(cmd *cobra.Command, args []string) error {
 
 func handleAttachmentError(err error) error {
 	if errors.Is(err, client.ErrNotFound) {
-		return &ExitError{Err: fmt.Errorf("not found"), Code: 4}
+		return &ExitError{Err: errors.New("not found"), Code: 4}
 	}
 	if errors.Is(err, client.ErrUnauthorized) {
-		return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+		return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 	}
 	return &ExitError{Err: err, Code: 1}
 }

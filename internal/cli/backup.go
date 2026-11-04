@@ -3,11 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strconv"
+
+	"github.com/spf13/cobra"
 
 	"github.com/e-invoice-be/peppol-cli/internal/backup"
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newBackupCmd() *cobra.Command {
@@ -98,7 +100,7 @@ func runBackup(cmd *cobra.Command, args []string) error {
 	return r.KeyValue([]output.KVPair{
 		{Key: "Directory", Value: dir},
 		{Key: "Layout", Value: string(layout)},
-		{Key: "New documents", Value: fmt.Sprintf("%d", res.DocumentsFetched)},
-		{Key: "Refreshed documents", Value: fmt.Sprintf("%d", res.DocumentsRefreshed)},
+		{Key: "New documents", Value: strconv.Itoa(res.DocumentsFetched)},
+		{Key: "Refreshed documents", Value: strconv.Itoa(res.DocumentsRefreshed)},
 	})
 }

@@ -2,14 +2,16 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/config"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newWorkspaceCmd() *cobra.Command {
@@ -62,7 +64,7 @@ func runWorkspaceAdd(cmd *cobra.Command, args []string) error {
 	}
 	apiKey := strings.TrimSpace(line)
 	if apiKey == "" {
-		return &ExitError{Err: fmt.Errorf("no API key provided"), Code: 1}
+		return &ExitError{Err: errors.New("no API key provided"), Code: 1}
 	}
 
 	// Validate the key.

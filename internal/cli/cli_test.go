@@ -12,10 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/config"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 // newTestServer returns an httptest.Server that handles GET /api/me/.
@@ -127,9 +128,9 @@ func TestRootCmd_Help(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
+	helpOut := buf.String()
 	for _, want := range []string{"auth", "me", "--json", "--quiet", "--verbose", "--no-color"} {
-		if !strings.Contains(output, want) {
+		if !strings.Contains(helpOut, want) {
 			t.Errorf("help output missing %q", want)
 		}
 	}
@@ -283,21 +284,21 @@ func TestStatsCmd_RenderTable(t *testing.T) {
 	cmd.SetOut(buf)
 
 	renderActionsTable(cmd, actions)
-	output := buf.String()
+	helpOut := buf.String()
 
-	if !strings.Contains(output, "DATE") {
+	if !strings.Contains(helpOut, "DATE") {
 		t.Error("table missing DATE header")
 	}
-	if !strings.Contains(output, "SENT") {
+	if !strings.Contains(helpOut, "SENT") {
 		t.Error("table missing SENT header")
 	}
-	if !strings.Contains(output, "RECEIVED") {
+	if !strings.Contains(helpOut, "RECEIVED") {
 		t.Error("table missing RECEIVED header")
 	}
-	if !strings.Contains(output, "2026-01-01") {
+	if !strings.Contains(helpOut, "2026-01-01") {
 		t.Error("table missing date 2026-01-01")
 	}
-	if !strings.Contains(output, "2026-01-02") {
+	if !strings.Contains(helpOut, "2026-01-02") {
 		t.Error("table missing date 2026-01-02")
 	}
 }
@@ -312,12 +313,12 @@ func TestCompletionCmd_Bash(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "bash") {
+	helpOut := buf.String()
+	if !strings.Contains(helpOut, "bash") {
 		t.Error("bash completion output missing 'bash' content")
 	}
-	if len(output) < 100 {
-		t.Errorf("bash completion output suspiciously short: %d bytes", len(output))
+	if len(helpOut) < 100 {
+		t.Errorf("bash completion output suspiciously short: %d bytes", len(helpOut))
 	}
 }
 
@@ -346,9 +347,9 @@ func TestRootCmd_HelpIncludesNewCommands(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
+	helpOut := buf.String()
 	for _, want := range []string{"stats", "completion"} {
-		if !strings.Contains(output, want) {
+		if !strings.Contains(helpOut, want) {
 			t.Errorf("help output missing %q", want)
 		}
 	}
@@ -645,8 +646,8 @@ func TestRootCmd_HelpIncludesWorkspace(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "workspace") {
+	helpOut := buf.String()
+	if !strings.Contains(helpOut, "workspace") {
 		t.Error("help output missing 'workspace' command")
 	}
 }
@@ -699,11 +700,11 @@ func TestWorkspaceListCmd_WithWorkspaces(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "alpha") {
+	helpOut := buf.String()
+	if !strings.Contains(helpOut, "alpha") {
 		t.Error("output missing 'alpha'")
 	}
-	if !strings.Contains(output, "beta") {
+	if !strings.Contains(helpOut, "beta") {
 		t.Error("output missing 'beta'")
 	}
 }
@@ -955,9 +956,9 @@ func TestRootCmd_HelpIncludesInboxOutboxDrafts(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
+	helpOut := buf.String()
 	for _, want := range []string{"inbox", "outbox", "drafts"} {
-		if !strings.Contains(output, want) {
+		if !strings.Contains(helpOut, want) {
 			t.Errorf("help output missing %q", want)
 		}
 	}
@@ -1491,11 +1492,11 @@ func TestRootCmd_WorkspaceFlag(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, "--workspace") {
+	helpOut := buf.String()
+	if !strings.Contains(helpOut, "--workspace") {
 		t.Error("help output missing '--workspace' flag")
 	}
-	if !strings.Contains(output, "-w") {
+	if !strings.Contains(helpOut, "-w") {
 		t.Error("help output missing '-w' shorthand")
 	}
 }
@@ -1513,20 +1514,20 @@ func newAttachmentTestServer(t *testing.T) *httptest.Server {
 		}
 
 		switch {
-		case r.URL.Path == "/api/documents/doc-1/attachments" && r.Method == "GET":
+		case r.URL.Path == "/api/documents/doc-1/attachments" && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`[
 				{"id":"att-1","file_name":"invoice.pdf","file_type":"application/pdf","file_size":102400},
 				{"id":"att-2","file_name":"receipt.png","file_type":"image/png","file_size":2048}
 			]`))
-		case r.URL.Path == "/api/documents/doc-1/attachments/att-1" && r.Method == "GET":
+		case r.URL.Path == "/api/documents/doc-1/attachments/att-1" && r.Method == http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"id":"att-1","file_name":"invoice.pdf","file_type":"application/pdf","file_size":102400,"file_url":"https://example.com/invoice.pdf"}`))
-		case r.URL.Path == "/api/documents/doc-1/attachments" && r.Method == "POST":
+		case r.URL.Path == "/api/documents/doc-1/attachments" && r.Method == http.MethodPost:
 			w.WriteHeader(http.StatusCreated)
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"id":"att-new","file_name":"upload.pdf","file_type":"application/pdf","file_size":512}`))
-		case r.URL.Path == "/api/documents/doc-1/attachments/att-1" && r.Method == "DELETE":
+		case r.URL.Path == "/api/documents/doc-1/attachments/att-1" && r.Method == http.MethodDelete:
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"is_deleted":true}`))
 		default:
@@ -1637,7 +1638,7 @@ func TestAttachmentAddCmd_JSONOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp.Write([]byte("fake pdf"))
+	tmp.WriteString("fake pdf")
 	tmp.Close()
 
 	att, err := c.AddAttachment("doc-1", tmp.Name())
@@ -1802,7 +1803,7 @@ func TestDocumentDeleteCmd_Help(t *testing.T) {
 
 func TestDocumentDeleteCmd_WithYes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "DELETE" {
+		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusOK)
