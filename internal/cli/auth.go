@@ -33,6 +33,19 @@ func newAuthCmd() *cobra.Command {
 func runAuth(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 
+	// Load the config before prompting so a broken config.yaml aborts the
+	// command without storing a key or overwriting the user's workspaces.
+	dir := mustConfigDir()
+	cfg, err := loadConfig(dir)
+	if err != nil {
+		return err
+	}
+	if flags.Workspace != "" {
+		if err := checkWorkspaceName(flags.Workspace, cfg); err != nil {
+			return err
+		}
+	}
+
 	fmt.Fprintf(w, "Open the following URL to get your API key:\n\n  %s\n\n", apiSettingsURL)
 
 	// Try to open browser, ignore errors (works fine without it).
@@ -64,7 +77,6 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine workspace name: use flag override, else derive from tenant name.
-	dir := mustConfigDir()
 	wsName := flags.Workspace
 	if wsName == "" {
 		wsName = slugify(tenant.Name)
@@ -80,10 +92,6 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update config with workspace.
-	cfg, err := config.LoadFrom(dir)
-	if err != nil {
-		cfg = &config.Config{Workspaces: make(map[string]config.Workspace)}
-	}
 	cfg.Workspaces[wsName] = config.Workspace{Name: tenant.Name}
 	cfg.ActiveWorkspace = wsName
 	if err := config.SaveTo(dir, cfg); err != nil {
@@ -107,15 +115,17 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	dir := mustConfigDir()
 
-	cfg, err := config.LoadFrom(dir)
+	cfg, err := loadConfig(dir)
 	if err != nil {
-		cfg = &config.Config{Workspaces: make(map[string]config.Workspace)}
+		return err
 	}
 
 	// Determine workspace.
 	workspace := flags.Workspace
 	if workspace == "" {
 		workspace = cfg.ActiveWorkspace
+	} else if err := checkWorkspaceName(workspace, cfg); err != nil {
+		return err
 	}
 
 	// Resolve key for the workspace.
@@ -156,15 +166,17 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	dir := mustConfigDir()
 
-	cfg, err := config.LoadFrom(dir)
+	cfg, err := loadConfig(dir)
 	if err != nil {
-		cfg = &config.Config{Workspaces: make(map[string]config.Workspace)}
+		return err
 	}
 
 	// Determine workspace.
 	workspace := flags.Workspace
 	if workspace == "" {
 		workspace = cfg.ActiveWorkspace
+	} else if err := checkWorkspaceName(workspace, cfg); err != nil {
+		return err
 	}
 
 	// Remove credentials for the workspace.
@@ -185,7 +197,9 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 			cfg.ActiveWorkspace = ""
 		}
 	}
-	_ = config.SaveTo(dir, cfg)
+	if err := config.SaveTo(dir, cfg); err != nil {
+		return &ExitError{Err: fmt.Errorf("saving config: %w", err), Code: 1}
+	}
 
 	fmt.Fprintln(w, "Logged out successfully")
 	return nil
@@ -209,5 +223,10 @@ func slugify(s string) string {
 		}
 	}
 	result := b.String()
+	// Keep the slug within the workspace-name limit so it always passes
+	// config.ValidateWorkspaceName.
+	if len(result) > config.MaxWorkspaceNameLen {
+		result = result[:config.MaxWorkspaceNameLen]
+	}
 	return strings.TrimRight(result, "-")
 }

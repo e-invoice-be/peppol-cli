@@ -67,11 +67,21 @@ func resolveKey() (string, error) {
 	// Determine which workspace to use.
 	workspace := flags.Workspace
 	if workspace == "" {
-		cfg, err := config.LoadFrom(dir)
+		cfg, err := loadConfig(dir)
 		if err != nil {
-			return "", &ExitError{Err: fmt.Errorf("loading config: %w", err), Code: 1}
+			return "", err
 		}
 		workspace = cfg.ActiveWorkspace
+	} else if err := config.ValidateWorkspaceName(workspace); err != nil {
+		// Legacy names outside the allowed set are still accepted when they
+		// exist in the config.
+		cfg, loadErr := config.LoadFrom(dir)
+		if loadErr != nil {
+			return "", &ExitError{Err: err, Code: 1}
+		}
+		if err := checkWorkspaceName(workspace, cfg); err != nil {
+			return "", err
+		}
 	}
 
 	// Build the appropriate keyring.

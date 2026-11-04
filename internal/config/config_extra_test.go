@@ -337,9 +337,6 @@ func TestFileKeyring_RemoveError(t *testing.T) {
 // BUG: workspace names are used verbatim in the credentials filename, so a
 // name containing path separators escapes the config directory.
 func TestFileKeyringForWorkspace_StaysInsideDir(t *testing.T) {
-	if os.Getenv("PEPPOL_SHOW_BUGS") == "" {
-		t.Skip("BUG: keyring.go NewFileKeyringForWorkspace joins \"credentials-\"+workspace without validation")
-	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "cfg")
 	if err := NewFileKeyringForWorkspace(dir, "x/../../escaped").Set("k"); err != nil {
