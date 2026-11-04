@@ -75,6 +75,7 @@ peppol stats                                   # Usage statistics
 peppol document get <id>                       # Show document (alias: doc)
 peppol document get <id> --full                # Include line items
 peppol document timeline <id>                  # Processing events
+peppol document lifecycle <id>                 # Status responses (MLR/IMR, partner events)
 peppol document create json <file>             # Create from JSON
 peppol document create ubl <file>              # Create from UBL/XML
 peppol document create pdf <file>              # Create from PDF (OCR)

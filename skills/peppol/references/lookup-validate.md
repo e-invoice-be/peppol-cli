@@ -51,6 +51,7 @@ cat invoice.json | peppol validate json --file - --json
 Response:
 - `is_valid`: boolean
 - `issues`: array of `{type, message, rule_id, location}` where type is `error` or `warning`
+- `ubl_document`: the generated UBL XML, returned whenever it could be generated, also when `is_valid` is false (only `is_valid` tells whether it is valid)
 
 **Exit code 3** when validation fails.
 

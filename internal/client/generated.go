@@ -24,8 +24,8 @@ type TenantPublic struct {
 	CompanyCity         *string    `json:"company_city,omitempty"`
 	CompanyCountry      *string    `json:"company_country,omitempty"`
 	CompanyEmail        *string    `json:"company_email,omitempty"`
-	SMPRegistration     *bool      `json:"smp_registration,omitempty"`
-	SMPRegistrationDate *time.Time `json:"smp_registration_date,omitempty"`
+	SMPRegistration     *bool      `json:"smp_registration,omitempty"`      // legacy: not a Peppol ID publication indicator
+	SMPRegistrationDate *time.Time `json:"smp_registration_date,omitempty"` // legacy: not a Peppol ID publication date
 	BCCRecipientEmail   *string    `json:"bcc_recipient_email,omitempty"`
 }
 
@@ -125,18 +125,22 @@ type DocumentResponse struct {
 	CustomerName               *string           `json:"customer_name,omitempty"`
 	CustomerID                 *string           `json:"customer_id,omitempty"`
 	CustomerEmail              *string           `json:"customer_email,omitempty"`
+	CustomerPhone              *string           `json:"customer_phone,omitempty"` // BT-57
 	CustomerTaxID              *string           `json:"customer_tax_id,omitempty"`
 	CustomerCompanyID          *string           `json:"customer_company_id,omitempty"`
 	CustomerPeppolID           *string           `json:"customer_peppol_id,omitempty"`
 	CustomerAddress            *string           `json:"customer_address,omitempty"`
-	CustomerAddressRecipient   *string           `json:"customer_address_recipient,omitempty"`
+	CustomerAddressRecipient   *string           `json:"customer_address_recipient,omitempty"` // also customer contact name (BT-56)
 	VendorName                 *string           `json:"vendor_name,omitempty"`
 	VendorEmail                *string           `json:"vendor_email,omitempty"`
+	VendorPhone                *string           `json:"vendor_phone,omitempty"` // BT-42
 	VendorAddress              *string           `json:"vendor_address,omitempty"`
-	VendorAddressRecipient     *string           `json:"vendor_address_recipient,omitempty"`
+	VendorAddressRecipient     *string           `json:"vendor_address_recipient,omitempty"` // also vendor contact name (BT-41)
 	VendorTaxID                *string           `json:"vendor_tax_id,omitempty"`
 	VendorCompanyID            *string           `json:"vendor_company_id,omitempty"`
-	PurchaseOrder              *string           `json:"purchase_order,omitempty"`
+	PurchaseOrder              *string           `json:"purchase_order,omitempty"`  // BT-13
+	SalesOrder                 *string           `json:"sales_order,omitempty"`     // BT-14
+	BuyerReference             *string           `json:"buyer_reference,omitempty"` // BT-10
 	InvoiceID                  *string           `json:"invoice_id,omitempty"`
 	InvoiceDate                *string           `json:"invoice_date,omitempty"`
 	DueDate                    *string           `json:"due_date,omitempty"`
@@ -153,12 +157,15 @@ type DocumentResponse struct {
 	ServiceStartDate           *string           `json:"service_start_date,omitempty"`
 	ServiceEndDate             *string           `json:"service_end_date,omitempty"`
 	Currency                   string            `json:"currency,omitempty"`
+	TaxCurrency                *string           `json:"tax_currency,omitempty"` // BT-6
 	TaxCode                    *string           `json:"tax_code,omitempty"`
 	Vatex                      *string           `json:"vatex,omitempty"`
 	VatexNote                  *string           `json:"vatex_note,omitempty"`
 	Subtotal                   *string           `json:"subtotal,omitempty"`
 	TotalDiscount              *string           `json:"total_discount,omitempty"`
 	TotalTax                   *string           `json:"total_tax,omitempty"`
+	TotalTaxInTaxCurrency      *string           `json:"total_tax_in_tax_currency,omitempty"` // BT-111
+	RoundingAmount             *string           `json:"rounding_amount,omitempty"`           // BT-114
 	InvoiceTotal               *string           `json:"invoice_total,omitempty"`
 	AmountDue                  *string           `json:"amount_due,omitempty"`
 	Note                       *string           `json:"note,omitempty"`
@@ -183,7 +190,7 @@ type LineItem struct {
 	TaxRate           *string         `json:"tax_rate,omitempty"`
 	Tax               *string         `json:"tax,omitempty"`
 	ProductCode       *string         `json:"product_code,omitempty"`
-	Date              *string         `json:"date,omitempty"`
+	Date              *string         `json:"date,omitempty"` // YYYY-MM-DD or null
 	ItemAttributes    []ItemAttribute `json:"item_attributes,omitempty"`
 }
 
@@ -213,6 +220,71 @@ type TimelineEvent struct {
 	Timestamp time.Time         `json:"timestamp"`
 	ID        *string           `json:"id,omitempty"`
 	Details   map[string]any    `json:"details,omitempty"`
+}
+
+// LifecycleLevel is the level a lifecycle event was stated at.
+type LifecycleLevel string
+
+const (
+	LifecycleLevelTransport LifecycleLevel = "transport"
+	LifecycleLevelBusiness  LifecycleLevel = "business"
+)
+
+// LifecycleSource identifies where a lifecycle event came from.
+type LifecycleSource string
+
+const (
+	LifecycleSourcePeppolMLR  LifecycleSource = "peppol:mlr"
+	LifecycleSourcePeppolMLS  LifecycleSource = "peppol:mls"
+	LifecycleSourcePeppolIMR  LifecycleSource = "peppol:imr"
+	LifecycleSourceFRSuperPDP LifecycleSource = "fr:superpdp"
+	LifecycleSourceLocal      LifecycleSource = "local"
+)
+
+// LifecycleDirection tells whether a lifecycle event was received or sent.
+type LifecycleDirection string
+
+const (
+	LifecycleDirectionIn  LifecycleDirection = "in"
+	LifecycleDirectionOut LifecycleDirection = "out"
+)
+
+// CanonicalStatus is the route-agnostic status of a lifecycle event.
+type CanonicalStatus string
+
+const (
+	CanonicalStatusDeposited         CanonicalStatus = "deposited"
+	CanonicalStatusEmitted           CanonicalStatus = "emitted"
+	CanonicalStatusDelivered         CanonicalStatus = "delivered"
+	CanonicalStatusRejected          CanonicalStatus = "rejected"
+	CanonicalStatusAcknowledged      CanonicalStatus = "acknowledged"
+	CanonicalStatusApproved          CanonicalStatus = "approved"
+	CanonicalStatusPartiallyApproved CanonicalStatus = "partially_approved"
+	CanonicalStatusDisputed          CanonicalStatus = "disputed"
+	CanonicalStatusOnHold            CanonicalStatus = "on_hold"
+	CanonicalStatusRefused           CanonicalStatus = "refused"
+	CanonicalStatusPaymentSent       CanonicalStatus = "payment_sent"
+	CanonicalStatusPaid              CanonicalStatus = "paid"
+)
+
+// DocumentLifecycle represents the response from GET /api/documents/{document_id}/lifecycle.
+type DocumentLifecycle struct {
+	DocumentID string           `json:"document_id"`
+	Events     []LifecycleEvent `json:"events"`
+}
+
+// LifecycleEvent is a single status stated about a document after creation.
+// The nullable fields are required in the spec, so they are kept (as null)
+// in JSON output rather than omitted.
+type LifecycleEvent struct {
+	Level           LifecycleLevel     `json:"level"`
+	CanonicalStatus *CanonicalStatus   `json:"canonical_status"`
+	NativeCode      *string            `json:"native_code"`
+	Source          LifecycleSource    `json:"source"`
+	Direction       LifecycleDirection `json:"direction"`
+	ReasonCode      *string            `json:"reason_code"`
+	Reason          *string            `json:"reason"`
+	OccurredAt      time.Time          `json:"occurred_at"`
 }
 
 // StatsResponse represents the response from GET /api/stats.

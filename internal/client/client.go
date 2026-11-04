@@ -290,6 +290,41 @@ func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, erro
 	}
 }
 
+// GetDocumentLifecycle calls GET /api/documents/{document_id}/lifecycle and returns
+// the lifecycle events (MLR/IMR responses, partner status events), oldest first.
+func (c *Client) GetDocumentLifecycle(documentID string) (*DocumentLifecycle, error) {
+	req, err := http.NewRequestWithContext(c.ctx, "GET", c.baseURL+"/api/documents/"+documentID+"/lifecycle", nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var lifecycle DocumentLifecycle
+		if err := json.Unmarshal(body, &lifecycle); err != nil {
+			return nil, fmt.Errorf("parsing response: %w", err)
+		}
+		return &lifecycle, nil
+	case http.StatusUnauthorized:
+		return nil, ErrUnauthorized
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		return nil, newAPIError(resp, body)
+	}
+}
+
 // ListAttachments calls GET /api/documents/{document_id}/attachments and returns the attachments.
 func (c *Client) ListAttachments(documentID string) ([]DocumentAttachment, error) {
 	req, err := http.NewRequestWithContext(c.ctx, "GET", c.baseURL+"/api/documents/"+documentID+"/attachments", nil)

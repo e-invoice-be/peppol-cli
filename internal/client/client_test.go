@@ -1836,3 +1836,143 @@ func TestDocumentResponse_NewFieldsOmittedWhenUnset(t *testing.T) {
 		}
 	}
 }
+
+func TestGetDocumentLifecycle_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/documents/doc-123/lifecycle" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Errorf("unexpected Authorization header: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"document_id": "doc-123",
+			"events": [
+				{"level": "transport", "canonical_status": "delivered", "native_code": "AP",
+				 "source": "peppol:mlr", "direction": "in", "reason_code": null, "reason": null,
+				 "occurred_at": "2026-01-15T10:31:00Z"},
+				{"level": "business", "canonical_status": null, "native_code": "XX",
+				 "source": "peppol:imr", "direction": "in", "reason_code": "REF", "reason": "Unknown order",
+				 "occurred_at": "2026-01-16T09:00:00Z"}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	lc, err := c.GetDocumentLifecycle("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if lc.DocumentID != "doc-123" {
+		t.Errorf("expected document_id 'doc-123', got %q", lc.DocumentID)
+	}
+	if len(lc.Events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(lc.Events))
+	}
+	first := lc.Events[0]
+	if first.Level != LifecycleLevelTransport || first.Source != LifecycleSourcePeppolMLR || first.Direction != LifecycleDirectionIn {
+		t.Errorf("unexpected first event: %+v", first)
+	}
+	if first.CanonicalStatus == nil || *first.CanonicalStatus != CanonicalStatusDelivered {
+		t.Errorf("expected canonical_status 'delivered', got %v", first.CanonicalStatus)
+	}
+	if first.ReasonCode != nil || first.Reason != nil {
+		t.Errorf("expected null reason fields, got %v %v", first.ReasonCode, first.Reason)
+	}
+	if !first.OccurredAt.Equal(time.Date(2026, 1, 15, 10, 31, 0, 0, time.UTC)) {
+		t.Errorf("unexpected occurred_at: %v", first.OccurredAt)
+	}
+	second := lc.Events[1]
+	if second.CanonicalStatus != nil {
+		t.Errorf("expected null canonical_status, got %v", *second.CanonicalStatus)
+	}
+	if second.NativeCode == nil || *second.NativeCode != "XX" {
+		t.Errorf("expected native_code 'XX', got %v", second.NativeCode)
+	}
+}
+
+func TestGetDocumentLifecycle_NullFieldsKeptInJSON(t *testing.T) {
+	ev := LifecycleEvent{Level: LifecycleLevelTransport, Source: LifecycleSourceLocal, Direction: LifecycleDirectionOut}
+	data, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, key := range []string{`"canonical_status":null`, `"native_code":null`, `"reason_code":null`, `"reason":null`} {
+		if !strings.Contains(string(data), key) {
+			t.Errorf("expected %s in %s", key, data)
+		}
+	}
+}
+
+func TestGetDocumentLifecycle_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	_, err := c.GetDocumentLifecycle("nonexistent")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetDocumentLifecycle_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Invalid API key"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("bad-key", WithBaseURL(srv.URL))
+	_, err := c.GetDocumentLifecycle("doc-123")
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized, got %v", err)
+	}
+}
+
+func TestGetDocument_NewFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"id": "doc-1", "created_at": "2026-01-15T10:30:00Z",
+			"buyer_reference": "CC-42", "sales_order": "SO-7",
+			"customer_phone": "+49 89 7654321", "vendor_phone": "+49 30 1234567",
+			"currency": "EUR", "tax_currency": "SEK", "total_tax_in_tax_currency": "2350.00",
+			"rounding_amount": "-0.25",
+			"items": [{"description": "x", "date": "2026-01-10"}, {"description": "y", "date": null}]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("test-key", WithBaseURL(srv.URL))
+	doc, err := c.GetDocument("doc-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	checks := map[string]*string{
+		"CC-42": doc.BuyerReference, "SO-7": doc.SalesOrder,
+		"+49 89 7654321": doc.CustomerPhone, "+49 30 1234567": doc.VendorPhone,
+		"SEK": doc.TaxCurrency, "2350.00": doc.TotalTaxInTaxCurrency, "-0.25": doc.RoundingAmount,
+	}
+	for want, got := range checks {
+		if got == nil || *got != want {
+			t.Errorf("expected %q, got %v", want, got)
+		}
+	}
+	if len(doc.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(doc.Items))
+	}
+	if doc.Items[0].Date == nil || *doc.Items[0].Date != "2026-01-10" {
+		t.Errorf("expected item date '2026-01-10', got %v", doc.Items[0].Date)
+	}
+	if doc.Items[1].Date != nil {
+		t.Errorf("expected nil item date, got %v", *doc.Items[1].Date)
+	}
+}

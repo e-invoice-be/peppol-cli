@@ -2,7 +2,7 @@
 
 **Send and receive e-invoices over the Peppol network from your terminal.**
 
-The official CLI for the [e-invoice.be Peppol API](https://e-invoice.be/peppol-api), a certified Peppol Access Point. Create documents from JSON, UBL, or PDF; the API handles Peppol BIS 3.0 validation, UBL generation, and routing. Send invoices, browse your inbox and outbox, follow each document's timeline, look up participants, and validate documents, all from the command line. Sandbox keys work the same as production keys.
+The official CLI for the [e-invoice.be Peppol API](https://e-invoice.be/peppol-api), a certified Peppol Access Point. Create documents from JSON, UBL, or PDF; the API handles Peppol BIS 3.0 validation, UBL generation, and routing. Send invoices, browse your inbox and outbox, follow each document's timeline and lifecycle (delivery and buyer responses), look up participants, and validate documents, all from the command line. Sandbox keys work the same as production keys.
 
 - **Peppol API:** [e-invoice.be/peppol-api](https://e-invoice.be/peppol-api)
 - **API docs:** [docs.e-invoice.be](https://docs.e-invoice.be)
@@ -102,7 +102,7 @@ peppol auth logout
 | `peppol outbox` | Browse sent documents |
 | `peppol drafts` | Browse draft documents |
 | `peppol mailbox` | Browse inbound emails, download their attachments, and reprocess failed emails |
-| `peppol document` | Get, create, send, validate, and delete documents |
+| `peppol document` | Get, create, send, validate, and delete documents; show their timeline and lifecycle |
 | `peppol lookup` | Look up Peppol participants by ID or name |
 | `peppol validate` | Validate Peppol IDs, JSON invoices, and UBL documents |
 | `peppol backup` | Archive every document, attachment, UBL XML, and timeline to a directory |
@@ -122,6 +122,9 @@ peppol document create json invoice.json
 
 # Send a document via Peppol
 peppol document send <document-id>
+
+# See delivery and buyer responses (MLR/IMR) for a sent invoice
+peppol document lifecycle <document-id>
 
 # List received invoices
 peppol inbox invoices

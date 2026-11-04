@@ -400,6 +400,19 @@ func newDocumentTestServer(t *testing.T) *httptest.Server {
 					{"event_type": "send_success", "timestamp": "2026-01-15T10:31:00Z"}
 				]
 			}`))
+		case "/api/documents/doc-123/lifecycle":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{
+				"document_id": "doc-123",
+				"events": [
+					{"level": "transport", "canonical_status": "delivered", "native_code": "AP",
+					 "source": "peppol:mlr", "direction": "in", "reason_code": null, "reason": null,
+					 "occurred_at": "2026-01-15T10:31:00Z"},
+					{"level": "business", "canonical_status": null, "native_code": "XX",
+					 "source": "peppol:imr", "direction": "in", "reason_code": "REF", "reason": "Unknown order",
+					 "occurred_at": "2026-01-16T09:00:00Z"}
+				]
+			}`))
 		case "/api/documents/nonexistent":
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(client.ErrorResponse{Detail: "not found"})
@@ -2500,6 +2513,140 @@ func TestRenderDocumentSections_HidesPrecedingInvoiceAndItemFieldsWhenUnset(t *t
 	for _, unwanted := range []string{"Preceding Invoice", "NAME", "BASE QTY"} {
 		if strings.Contains(out, unwanted) {
 			t.Errorf("output must not contain %q\nGot:\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestDocumentLifecycleCmd_TextOutput(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	lc, err := c.GetDocumentLifecycle("doc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderLifecycle(r, lc); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"OCCURRED", "STATUS", "NATIVE CODE",
+		"2026-01-15 10:31:00", "delivered", "transport", "peppol:mlr", "AP",
+		"2026-01-16 09:00:00", "business", "peppol:imr", "XX", "REF: Unknown order",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentLifecycleCmd_Empty(t *testing.T) {
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderLifecycle(r, &client.DocumentLifecycle{DocumentID: "doc-1"}); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "No lifecycle events.") {
+		t.Errorf("expected empty message, got:\n%s", buf.String())
+	}
+}
+
+func TestDocumentLifecycleCmd_NotFound(t *testing.T) {
+	srv := newDocumentTestServer(t)
+	defer srv.Close()
+
+	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
+	if _, err := c.GetDocumentLifecycle("nonexistent"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' error, got %v", err)
+	}
+}
+
+func TestFormatLifecycleReason(t *testing.T) {
+	tests := []struct {
+		code, reason *string
+		want         string
+	}{
+		{nil, nil, "-"},
+		{strPtr("REF"), nil, "REF"},
+		{nil, strPtr("Unknown order"), "Unknown order"},
+		{strPtr("REF"), strPtr("Unknown order"), "REF: Unknown order"},
+		{strPtr(""), strPtr(""), "-"},
+	}
+	for _, tt := range tests {
+		if got := formatLifecycleReason(tt.code, tt.reason); got != tt.want {
+			t.Errorf("formatLifecycleReason(%v, %v) = %q, want %q", tt.code, tt.reason, got, tt.want)
+		}
+	}
+}
+
+func TestDocumentLifecycleCmd_Help(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "lifecycle", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{"document-id", "canonical status", "Invoice Responses"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help output missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestDocumentCmd_HelpListsLifecycle(t *testing.T) {
+	cmd := NewRootCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"document", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "lifecycle") {
+		t.Errorf("document help missing 'lifecycle', got:\n%s", buf.String())
+	}
+}
+
+func TestRenderDocumentSections_NewFields(t *testing.T) {
+	doc := &client.DocumentResponse{
+		ID:                    "doc-1",
+		CustomerName:          strPtr("Acme"),
+		CustomerPhone:         strPtr("+49 89 7654321"),
+		VendorName:            strPtr("Me"),
+		VendorPhone:           strPtr("+49 30 1234567"),
+		BuyerReference:        strPtr("CC-42"),
+		PurchaseOrder:         strPtr("PO-1"),
+		SalesOrder:            strPtr("SO-7"),
+		Currency:              "EUR",
+		TaxCurrency:           strPtr("SEK"),
+		Subtotal:              strPtr("1000.00"),
+		TotalTax:              strPtr("210.00"),
+		TotalTaxInTaxCurrency: strPtr("2350.00"),
+		InvoiceTotal:          strPtr("1210.00"),
+		RoundingAmount:        strPtr("-0.25"),
+	}
+	buf := new(bytes.Buffer)
+	r := output.NewTestRenderer(buf, false, false, true, false)
+	if err := renderDocumentSections(r, doc, false); err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Buyer Reference", "CC-42", "Purchase Order", "PO-1", "Sales Order", "SO-7",
+		"Customer Phone", "+49 89 7654321", "Vendor Phone", "+49 30 1234567",
+		"VAT (SEK)", "2350.00 SEK", "Rounding", "-0.25 EUR",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q\nGot:\n%s", want, out)
 		}
 	}
 }
