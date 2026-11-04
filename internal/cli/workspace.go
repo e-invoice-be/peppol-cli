@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -45,9 +46,14 @@ func runWorkspaceAdd(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	dir := mustConfigDir()
 
-	cfg, err := config.LoadFrom(dir)
+	// New workspaces must always have a valid name.
+	if err := checkWorkspaceName(name, nil); err != nil {
+		return err
+	}
+
+	cfg, err := loadConfig(dir)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("loading config: %w", err), Code: 1}
+		return err
 	}
 
 	// Check if workspace already exists.
@@ -111,9 +117,9 @@ func newWorkspaceListCmd() *cobra.Command {
 
 func runWorkspaceList(cmd *cobra.Command, args []string) error {
 	dir := mustConfigDir()
-	cfg, err := config.LoadFrom(dir)
+	cfg, err := loadConfig(dir)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("loading config: %w", err), Code: 1}
+		return err
 	}
 
 	r := output.FromContext(cmd.Context())
@@ -168,9 +174,12 @@ func runWorkspaceUse(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	dir := mustConfigDir()
 
-	cfg, err := config.LoadFrom(dir)
+	cfg, err := loadConfig(dir)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("loading config: %w", err), Code: 1}
+		return err
+	}
+	if err := checkWorkspaceName(name, cfg); err != nil {
+		return err
 	}
 
 	if err := cfg.SetActiveWorkspace(name); err != nil {
@@ -199,9 +208,12 @@ func runWorkspaceRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	dir := mustConfigDir()
 
-	cfg, err := config.LoadFrom(dir)
+	cfg, err := loadConfig(dir)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("loading config: %w", err), Code: 1}
+		return err
+	}
+	if err := checkWorkspaceName(name, cfg); err != nil {
+		return err
 	}
 
 	if err := cfg.RemoveWorkspace(name); err != nil {
@@ -219,5 +231,38 @@ func runWorkspaceRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Workspace %q removed\n", name)
+	return nil
+}
+
+// loadConfig reads config.yaml from dir. A missing file yields an empty
+// config; any other failure (unreadable or unparsable file) is returned as an
+// exit-code-1 error naming the file, so callers never fall back to an empty
+// config and overwrite the user's workspaces.
+func loadConfig(dir string) (*config.Config, error) {
+	cfg, err := config.LoadFrom(dir)
+	if err != nil {
+		path := filepath.Join(dir, "config.yaml")
+		return nil, &ExitError{
+			Err:  fmt.Errorf("loading config %s: %w (fix or move the file; nothing was changed)", path, err),
+			Code: 1,
+		}
+	}
+	return cfg, nil
+}
+
+// checkWorkspaceName validates a workspace name supplied by the user. A name
+// that already exists in cfg is accepted as-is, so workspaces created before
+// names were validated stay usable (the file keyring still refuses any name
+// that would place credentials outside the config directory). Pass a nil cfg
+// to validate a new name strictly.
+func checkWorkspaceName(name string, cfg *config.Config) error {
+	if cfg != nil {
+		if _, ok := cfg.Workspaces[name]; ok {
+			return nil
+		}
+	}
+	if err := config.ValidateWorkspaceName(name); err != nil {
+		return &ExitError{Err: err, Code: 1}
+	}
 	return nil
 }

@@ -92,7 +92,9 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		f.t.Errorf("reading request body: %v", err)
+		// The client went away mid-request (e.g. backup cancels in-flight
+		// fetches after a sibling fails). Nothing to record or answer.
+		return
 	}
 	f.mu.Lock()
 	f.reqs = append(f.reqs, recordedRequest{
@@ -177,6 +179,11 @@ func isolateConfig(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
 	t.Setenv("PEPPOL_API_KEY", "")
+	// Global flags (e.g. --workspace from a previous test's CLI run) persist
+	// across tests; start clean and restore afterwards.
+	saved := flags
+	flags = GlobalFlags{}
+	t.Cleanup(func() { flags = saved })
 	return filepath.Join(dir, "peppol-cli")
 }
 

@@ -1824,7 +1824,8 @@ func TestDocumentDeleteCmd_WithYes(t *testing.T) {
 func TestDocumentDeleteCmd_ConfirmNo(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd := NewRootCmd()
-	cmd.SetOut(buf)
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(buf) // the prompt and "Aborted." go to stderr
 	cmd.SetIn(strings.NewReader("n\n"))
 	t.Setenv("PEPPOL_API_KEY", "test-key")
 	cmd.SetArgs([]string{"document", "delete", "doc-123"})

@@ -330,7 +330,6 @@ func TestAuth_RejectedKeyIsExitCode2AndStoresNothing(t *testing.T) {
 // every other workspace is silently dropped.
 func TestAuth_CorruptConfigIsNotOverwritten(t *testing.T) {
 	noBrowser(t)
-	skipKnownBug(t, "auth.go runAuth replaces an unparsable config.yaml with a fresh one, losing all workspaces")
 	api := newFakeAPI(t)
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
 	dir := isolateConfig(t)
@@ -347,8 +346,13 @@ func TestAuth_CorruptConfigIsNotOverwritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Err == nil && string(data) != corrupt {
-		t.Errorf("config was overwritten without an error:\n%s", data)
+	if string(data) != corrupt {
+		t.Errorf("config was overwritten:\n%s", data)
+	}
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), filepath.Join(dir, "config.yaml"))
+	if _, err := os.Stat(filepath.Join(dir, "credentials-acme")); err == nil {
+		t.Error("credentials stored despite the config error")
 	}
 }
 
@@ -486,16 +490,14 @@ func TestWorkspaceAdd_RequiresName(t *testing.T) {
 // BUG: workspace names are used unchecked in credential file names, so a
 // name with path separators writes the API key outside the config dir.
 func TestWorkspaceAdd_RejectsPathTraversalName(t *testing.T) {
-	skipKnownBug(t, "workspace.go runWorkspaceAdd / auth -w accept names like 'x/../../escaped'; keyring.go joins them into the credentials path")
 	api := newFakeAPI(t)
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
 	dir := isolateConfig(t)
 	withStdin(t, goodKey+"\n")
 	// The key lands in <config>/credentials-x/../../escaped = <config>/../escaped.
 	res := runCLI(t, "", "workspace", "add", "x/../../escaped")
-	if res.Err == nil {
-		t.Errorf("expected invalid workspace name error")
-	}
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "invalid workspace name")
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped")); err == nil {
 		t.Error("API key written outside the config directory")
 	}
@@ -567,5 +569,83 @@ func TestWorkspaceList_EmptyJSONIsArray(t *testing.T) {
 	wantOK(t, res)
 	if strings.TrimSpace(res.Out) != "[]" {
 		t.Errorf("want [], got %q", res.Out)
+	}
+}
+
+// --- workspace name validation ---
+
+func TestSlugify_AlwaysProducesValidWorkspaceName(t *testing.T) {
+	inputs := []string{
+		"Acme", "My Company B.V.", "  --Weird__Name--  ", "Café Ünïcödé GmbH",
+		"a/../../b", "..", "123", "x" + strings.Repeat("y z ", 200),
+		strings.Repeat("a", 1000), strings.Repeat("ab-", 300),
+	}
+	for _, in := range inputs {
+		got := slugify(in)
+		if got == "" {
+			continue // runAuth falls back to "default"
+		}
+		if err := config.ValidateWorkspaceName(got); err != nil {
+			t.Errorf("slugify(%q) = %q, rejected by validator: %v", in, got, err)
+		}
+	}
+	if err := config.ValidateWorkspaceName("default"); err != nil {
+		t.Errorf("fallback name rejected: %v", err)
+	}
+}
+
+func TestAuth_RejectsInvalidWorkspaceFlag(t *testing.T) {
+	noBrowser(t)
+	api := newFakeAPI(t)
+	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
+	dir := isolateConfig(t)
+	withStdin(t, goodKey+"\n")
+	res := runCLI(t, "", "auth", "-w", "x/../../escaped")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "invalid workspace name")
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped")); err == nil {
+		t.Error("API key written outside the config directory")
+	}
+}
+
+func TestWorkspaceFlag_InvalidNameIsExitCode1(t *testing.T) {
+	isolateConfig(t)
+	for _, args := range [][]string{
+		{"me", "-w", "../x"},
+		{"auth", "status", "-w", "../x"},
+		{"auth", "logout", "-w", "../x"},
+		{"workspace", "use", "../x"},
+		{"workspace", "remove", "../x"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			res := runCLI(t, "", args...)
+			wantCode(t, res, 1)
+			wantContains(t, res.Err.Error(), "invalid workspace name")
+		})
+	}
+}
+
+func TestWorkspace_LegacyNameInConfigStillUsable(t *testing.T) {
+	dir := isolateConfig(t)
+	saveWorkspaces(t, dir, "", map[string]string{"My Prod": "k1"})
+	wantOK(t, runCLI(t, "", "workspace", "use", "My Prod"))
+	wantOK(t, runCLI(t, "", "workspace", "remove", "My Prod"))
+}
+
+func TestAuthLogout_CorruptConfigIsNotOverwritten(t *testing.T) {
+	dir := isolateConfig(t)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := "{{{"
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(corrupt), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := runCLI(t, "", "auth", "logout")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), path)
+	if data, _ := os.ReadFile(path); string(data) != corrupt {
+		t.Errorf("config was overwritten:\n%s", data)
 	}
 }

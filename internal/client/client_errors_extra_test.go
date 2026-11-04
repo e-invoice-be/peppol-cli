@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -263,21 +264,81 @@ func TestMailboxEndpoints_EscapePathSegments(t *testing.T) {
 // url.PathEscape (the mailbox endpoints do escape), so an ID containing "/",
 // "?" or "#" addresses a different endpoint.
 func TestDocumentEndpoints_EscapePathSegments(t *testing.T) {
-	if os.Getenv("PEPPOL_SHOW_BUGS") == "" {
-		t.Skip("BUG: client.go document endpoints build paths with \"/api/documents/\"+documentID (no url.PathEscape)")
-	}
-	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.EscapedPath()
-		_, _ = io.WriteString(w, `{}`)
-	}))
-	t.Cleanup(srv.Close)
-	c := NewClient("key", WithBaseURL(srv.URL))
-	if _, err := c.GetDocument("x/timeline"); err != nil {
+	file := filepath.Join(t.TempDir(), "a.pdf")
+	if err := os.WriteFile(file, []byte("%PDF"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if want := "/api/documents/x%2Ftimeline"; gotPath != want {
-		t.Errorf("path = %q, want %q", gotPath, want)
+	const evil = "x/y?z%25#f" // slash, query, percent and fragment
+	const evilEsc = "x%2Fy%3Fz%2525%23f"
+	cases := []struct {
+		name string
+		call func(c *Client, id string) error
+		want string // %[1]s is the escaped ID
+	}{
+		{"GetDocument", func(c *Client, id string) error { _, err := c.GetDocument(id); return err }, "/api/documents/%[1]s"},
+		{"GetDocumentTimeline", func(c *Client, id string) error { _, err := c.GetDocumentTimeline(id); return err }, "/api/documents/%[1]s/timeline"},
+		{"GetDocumentLifecycle", func(c *Client, id string) error { _, err := c.GetDocumentLifecycle(id); return err }, "/api/documents/%[1]s/lifecycle"},
+		{"GetDocumentUBL", func(c *Client, id string) error { _, err := c.GetDocumentUBL(id); return err }, "/api/documents/%[1]s/ubl"},
+		{"SendDocument", func(c *Client, id string) error { _, err := c.SendDocument(id, SendDocumentOptions{}); return err }, "/api/documents/%[1]s/send"},
+		{"ValidateDocument", func(c *Client, id string) error { _, err := c.ValidateDocument(id); return err }, "/api/documents/%[1]s/validate"},
+		{"DeleteDocument", func(c *Client, id string) error { _, err := c.DeleteDocument(id); return err }, "/api/documents/%[1]s"},
+		{"ListAttachments", func(c *Client, id string) error { _, err := c.ListAttachments(id); return err }, "/api/documents/%[1]s/attachments"},
+		{"AddAttachment", func(c *Client, id string) error { _, err := c.AddAttachment(id, file); return err }, "/api/documents/%[1]s/attachments"},
+		{"GetAttachment", func(c *Client, id string) error { _, err := c.GetAttachment(id, id); return err }, "/api/documents/%[1]s/attachments/%[1]s"},
+		{"DeleteAttachment", func(c *Client, id string) error { _, err := c.DeleteAttachment(id, id); return err }, "/api/documents/%[1]s/attachments/%[1]s"},
+		{"GetMailboxEmail", func(c *Client, id string) error { _, err := c.GetMailboxEmail(id); return err }, "/api/mailbox/%[1]s"},
+		{"DownloadMailboxAttachment", func(c *Client, id string) error { _, err := c.DownloadMailboxAttachment(id, id); return err }, "/api/mailbox/%[1]s/attachments/%[1]s"},
+		{"ReprocessMailboxEmail", func(c *Client, id string) error { _, err := c.ReprocessMailboxEmail(id); return err }, "/api/mailbox/%[1]s/reprocess"},
+	}
+	ids := []struct{ raw, escaped string }{
+		{evil, evilEsc},
+		// Plain IDs must produce byte-identical URLs to the unescaped form.
+		{"doc_123", "doc_123"},
+		{"0b9f6c3e-6a1d-4c47-9d1e-2f6f1f0a7b11", "0b9f6c3e-6a1d-4c47-9d1e-2f6f1f0a7b11"},
+	}
+	for _, tc := range cases {
+		for _, id := range ids {
+			t.Run(tc.name+"/"+id.escaped, func(t *testing.T) {
+				var gotPath, gotQuery string
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					gotPath, gotQuery = r.URL.EscapedPath(), r.URL.RawQuery
+					switch {
+					case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/attachments"):
+						w.WriteHeader(http.StatusCreated)
+					case strings.HasSuffix(r.URL.Path, "/reprocess"):
+						w.WriteHeader(http.StatusAccepted)
+					case strings.HasSuffix(r.URL.Path, "/attachments"):
+						_, _ = io.WriteString(w, `[]`)
+						return
+					case strings.HasPrefix(r.URL.Path, "/api/mailbox/") && strings.Contains(r.URL.Path, "/attachments/"):
+						w.Header().Set("Content-Type", "application/pdf")
+						_, _ = io.WriteString(w, "%PDF")
+						return
+					}
+					_, _ = io.WriteString(w, `{}`)
+				}))
+				t.Cleanup(srv.Close)
+				c := NewClient("key", WithBaseURL(srv.URL))
+				if err := tc.call(c, id.raw); err != nil {
+					t.Fatal(err)
+				}
+				if want := fmt.Sprintf(tc.want, id.escaped); gotPath != want {
+					t.Errorf("path = %q, want %q", gotPath, want)
+				}
+				if gotQuery != "" {
+					t.Errorf("unexpected query %q leaked from ID", gotQuery)
+				}
+			})
+		}
+	}
+}
+
+func TestPathURL_PlainIDsUnchanged(t *testing.T) {
+	c := NewClient("key", WithBaseURL("https://api.example"))
+	for _, id := range []string{"abc", "ABC-123_x.y~z", "0b9f6c3e-6a1d-4c47-9d1e-2f6f1f0a7b11"} {
+		if got, want := c.pathURL("/api/documents/%s/timeline", id), "https://api.example/api/documents/"+id+"/timeline"; got != want {
+			t.Errorf("pathURL(%q) = %q, want %q", id, got, want)
+		}
 	}
 }
 

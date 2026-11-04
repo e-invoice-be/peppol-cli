@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -154,5 +156,69 @@ func TestFileKeyringForWorkspace_IndependentFromDefault(t *testing.T) {
 	}
 	if keyW != "workspace-key" {
 		t.Errorf("expected 'workspace-key', got %q", keyW)
+	}
+}
+
+func TestValidateWorkspaceName(t *testing.T) {
+	valid := []string{
+		"default", "prod", "my-company-b-v", "Acme_Corp", "v1.2", "a",
+		"..a", "a..b", ".hidden", strings.Repeat("a", MaxWorkspaceNameLen),
+	}
+	for _, name := range valid {
+		if err := ValidateWorkspaceName(name); err != nil {
+			t.Errorf("ValidateWorkspaceName(%q) = %v, want nil", name, err)
+		}
+	}
+	invalid := []string{
+		"", ".", "..", "x/../../escaped", "../escaped", "a/b", `a\b`,
+		"has space", "tab\tname", "nul\x00", "caf\u00e9", "semi;colon",
+		strings.Repeat("a", MaxWorkspaceNameLen+1),
+	}
+	for _, name := range invalid {
+		if err := ValidateWorkspaceName(name); err == nil {
+			t.Errorf("ValidateWorkspaceName(%q) = nil, want error", name)
+		}
+	}
+}
+
+func TestMaxWorkspaceNameLen_FitsFilenameLimit(t *testing.T) {
+	if n := len(credsFile + "-" + strings.Repeat("a", MaxWorkspaceNameLen)); n > 255 {
+		t.Errorf("credentials filename length %d exceeds 255", n)
+	}
+}
+
+func TestFileKeyringForWorkspace_RejectsEscapingNames(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "cfg")
+	for _, name := range []string{"", "x/../../escaped", "a/b", "../x", "nul\x00"} {
+		kr := NewFileKeyringForWorkspace(dir, name)
+		if err := kr.Set("k"); err == nil {
+			t.Errorf("Set with workspace %q succeeded, want error", name)
+		}
+		if _, err := kr.Get(); err == nil {
+			t.Errorf("Get with workspace %q succeeded, want error", name)
+		}
+		if err := kr.Remove(); err == nil {
+			t.Errorf("Remove with workspace %q succeeded, want error", name)
+		}
+	}
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		if e.Name() != "cfg" {
+			t.Errorf("unexpected file outside config dir: %s", e.Name())
+		}
+	}
+}
+
+func TestFileKeyringForWorkspace_AllowsLegacyNamesInsideDir(t *testing.T) {
+	// Names created before validation existed (e.g. with spaces) keep working
+	// as long as the file stays inside the config dir.
+	dir := t.TempDir()
+	kr := NewFileKeyringForWorkspace(dir, "My Prod")
+	if err := kr.Set("k"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got, err := kr.Get(); err != nil || got != "k" {
+		t.Errorf("Get = %q, %v; want k, nil", got, err)
 	}
 }

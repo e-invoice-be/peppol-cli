@@ -144,6 +144,19 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 	return c
 }
 
+// pathURL builds an absolute request URL from a path format such as
+// "/api/documents/%s/attachments/%s". Every %s is replaced by the
+// corresponding segment after url.PathEscape, so user-supplied IDs can never
+// add path segments ("a/b"), start a query ("?") or fragment ("#"), or inject
+// escape sequences ("%"). Always use it when a path contains caller input.
+func (c *Client) pathURL(format string, segments ...string) string {
+	args := make([]any, len(segments))
+	for i, s := range segments {
+		args[i] = url.PathEscape(s)
+	}
+	return c.baseURL + fmt.Sprintf(format, args...)
+}
+
 // GetMe calls GET /api/me/ and returns the tenant info.
 func (c *Client) GetMe() (*TenantPublic, error) {
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/me/", http.NoBody)
@@ -224,7 +237,7 @@ func (c *Client) GetStats(startDate, endDate, aggregation string) (*StatsRespons
 
 // GetDocument calls GET /api/documents/{document_id} and returns the document details.
 func (c *Client) GetDocument(documentID string) (*DocumentResponse, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/documents/"+documentID, http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.pathURL("/api/documents/%s", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -258,7 +271,7 @@ func (c *Client) GetDocument(documentID string) (*DocumentResponse, error) {
 
 // GetDocumentTimeline calls GET /api/documents/{document_id}/timeline and returns the timeline.
 func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/documents/"+documentID+"/timeline", http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.pathURL("/api/documents/%s/timeline", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -293,7 +306,7 @@ func (c *Client) GetDocumentTimeline(documentID string) (*DocumentTimeline, erro
 // GetDocumentLifecycle calls GET /api/documents/{document_id}/lifecycle and returns
 // the lifecycle events (MLR/IMR responses, partner status events), oldest first.
 func (c *Client) GetDocumentLifecycle(documentID string) (*DocumentLifecycle, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/documents/"+documentID+"/lifecycle", http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.pathURL("/api/documents/%s/lifecycle", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -327,7 +340,7 @@ func (c *Client) GetDocumentLifecycle(documentID string) (*DocumentLifecycle, er
 
 // ListAttachments calls GET /api/documents/{document_id}/attachments and returns the attachments.
 func (c *Client) ListAttachments(documentID string) ([]DocumentAttachment, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/documents/"+documentID+"/attachments", http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.pathURL("/api/documents/%s/attachments", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -361,7 +374,7 @@ func (c *Client) ListAttachments(documentID string) ([]DocumentAttachment, error
 
 // GetAttachment calls GET /api/documents/{document_id}/attachments/{attachment_id}.
 func (c *Client) GetAttachment(documentID, attachmentID string) (*DocumentAttachment, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.pathURL("/api/documents/%s/attachments/%s", documentID, attachmentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -416,7 +429,7 @@ func (c *Client) AddAttachment(documentID, filePath string) (*DocumentAttachment
 		return nil, fmt.Errorf("closing multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.baseURL+"/api/documents/"+documentID+"/attachments", &buf)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.pathURL("/api/documents/%s/attachments", documentID), &buf)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -451,7 +464,7 @@ func (c *Client) AddAttachment(documentID, filePath string) (*DocumentAttachment
 
 // DeleteAttachment calls DELETE /api/documents/{document_id}/attachments/{attachment_id}.
 func (c *Client) DeleteAttachment(documentID, attachmentID string) (*DocumentAttachmentDelete, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodDelete, c.baseURL+"/api/documents/"+documentID+"/attachments/"+attachmentID, http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodDelete, c.pathURL("/api/documents/%s/attachments/%s", documentID, attachmentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -594,7 +607,7 @@ func (c *Client) CreateDocumentFromPDF(filePath, vendorTaxID, customerTaxID stri
 
 // SendDocument sends a document via Peppol.
 func (c *Client) SendDocument(documentID string, opts SendDocumentOptions) (*DocumentResponse, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.baseURL+"/api/documents/"+documentID+"/send", http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.pathURL("/api/documents/%s/send", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -646,7 +659,7 @@ func (c *Client) SendDocument(documentID string, opts SendDocumentOptions) (*Doc
 
 // ValidateDocument validates a document against Peppol BIS Billing 3.0.
 func (c *Client) ValidateDocument(documentID string) (*ValidationResponse, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.baseURL+"/api/documents/"+documentID+"/validate", http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.pathURL("/api/documents/%s/validate", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -680,7 +693,7 @@ func (c *Client) ValidateDocument(documentID string) (*ValidationResponse, error
 
 // DeleteDocument calls DELETE /api/documents/{document_id} and returns the result.
 func (c *Client) DeleteDocument(documentID string) (*DocumentDelete, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodDelete, c.baseURL+"/api/documents/"+documentID, http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodDelete, c.pathURL("/api/documents/%s", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -714,7 +727,7 @@ func (c *Client) DeleteDocument(documentID string) (*DocumentDelete, error) {
 
 // GetDocumentUBL calls GET /api/documents/{document_id}/ubl and returns the UBL metadata.
 func (c *Client) GetDocumentUBL(documentID string) (*DocumentUBL, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/documents/"+documentID+"/ubl", http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.pathURL("/api/documents/%s/ubl", documentID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -973,7 +986,7 @@ func (c *Client) ListMailbox(params MailboxListParams) (*PaginatedInboundEmails,
 
 // GetMailboxEmail calls GET /api/mailbox/{inbound_email_id} and returns the inbound email.
 func (c *Client) GetMailboxEmail(emailID string) (*InboundEmailResponse, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.baseURL+"/api/mailbox/"+url.PathEscape(emailID), http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, c.pathURL("/api/mailbox/%s", emailID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -983,7 +996,7 @@ func (c *Client) GetMailboxEmail(emailID string) (*InboundEmailResponse, error) 
 // DownloadMailboxAttachment calls GET /api/mailbox/{inbound_email_id}/attachments/{filename}
 // and returns the binary content with its Content-Type.
 func (c *Client) DownloadMailboxAttachment(emailID, filename string) (*MailboxAttachment, error) {
-	u := c.baseURL + "/api/mailbox/" + url.PathEscape(emailID) + "/attachments/" + url.PathEscape(filename)
+	u := c.pathURL("/api/mailbox/%s/attachments/%s", emailID, filename)
 	req, err := http.NewRequestWithContext(c.ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -1015,7 +1028,7 @@ func (c *Client) DownloadMailboxAttachment(emailID, filename string) (*MailboxAt
 // ReprocessMailboxEmail calls POST /api/mailbox/{inbound_email_id}/reprocess to retry
 // a failed inbound email. The API answers 202 Accepted with the email.
 func (c *Client) ReprocessMailboxEmail(emailID string) (*InboundEmailResponse, error) {
-	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.baseURL+"/api/mailbox/"+url.PathEscape(emailID)+"/reprocess", http.NoBody)
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.pathURL("/api/mailbox/%s/reprocess", emailID), http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}

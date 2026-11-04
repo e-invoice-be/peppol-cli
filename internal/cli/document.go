@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -617,19 +616,8 @@ func newDocumentDeleteCmd() *cobra.Command {
 
 func runDocumentDelete(cmd *cobra.Command, args []string) error {
 	yes, _ := cmd.Flags().GetBool("yes")
-	if !yes {
-		fmt.Fprintf(cmd.OutOrStdout(), "Delete document %s? [y/N] ", args[0])
-		scanner := bufio.NewScanner(cmd.InOrStdin())
-		if scanner.Scan() {
-			answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-			if answer != "y" && answer != "yes" {
-				fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
-				return nil
-			}
-		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
-			return nil
-		}
+	if !yes && !confirm(cmd, fmt.Sprintf("Delete document %s?", args[0])) {
+		return nil
 	}
 
 	apiKey, err := resolveKey()
