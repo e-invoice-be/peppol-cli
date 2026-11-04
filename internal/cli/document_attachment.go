@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -211,15 +209,8 @@ func newAttachmentDeleteCmd() *cobra.Command {
 
 func runAttachmentDelete(cmd *cobra.Command, args []string) error {
 	yes, _ := cmd.Flags().GetBool("yes")
-	if !yes {
-		fmt.Fprintf(cmd.OutOrStdout(), "Delete attachment %s from document %s? [y/N] ", args[1], args[0])
-		reader := bufio.NewReader(cmd.InOrStdin())
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
-			fmt.Fprintln(cmd.OutOrStdout(), "Aborted.")
-			return nil
-		}
+	if !yes && !confirm(cmd, fmt.Sprintf("Delete attachment %s from document %s?", args[1], args[0])) {
+		return nil
 	}
 
 	apiKey, err := resolveKey()

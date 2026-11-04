@@ -408,16 +408,18 @@ func TestDocumentDelete_AbortNeedsNoCredentials(t *testing.T) {
 	wantContains(t, res.Out, "Aborted.")
 }
 
-// BUG: with --json and no --yes the confirmation prompt is written to stdout
-// in front of the JSON document, so the output does not parse.
+// With --json and no --yes the confirmation prompt goes to stderr, so stdout
+// is exactly the JSON document.
 func TestDocumentDelete_JSONWithPromptIsParseable(t *testing.T) {
-	skipKnownBug(t, "document.go runDocumentDelete prints the [y/N] prompt to stdout in --json mode")
 	api := newFakeAPI(t)
 	api.json("DELETE /api/documents/doc-1", http.StatusOK, map[string]any{"is_deleted": true})
 	useEnvKey(t, goodKey)
-	res := runCLI(t, "y\n", "document", "delete", "doc-1", "--json")
-	wantOK(t, res)
-	decodeJSON(t, res.Out)
+	stdout, stderr, err := runCLISplit(t, "y\n", "document", "delete", "doc-1", "--json")
+	if err != nil {
+		t.Fatalf("delete failed: %v", err)
+	}
+	decodeJSON(t, stdout)
+	wantContains(t, stderr, "Delete document doc-1? [y/N]")
 }
 
 // --- ubl ---

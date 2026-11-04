@@ -46,11 +46,9 @@ func TestBackup_EmptyAccountWritesManifest(t *testing.T) {
 	}
 }
 
-// BUG: with --json (and without -q) backup.Run writes its "fetched <id>" and
-// "done: N fetched, M refreshed" progress lines to stdout in front of the
-// JSON summary, so the output is not valid JSON.
+// With --json (and without -q) the "fetched <id>" and "done: ..." progress
+// lines are suppressed so stdout is exactly the JSON summary.
 func TestBackup_JSONOutputIsParseable(t *testing.T) {
-	skipKnownBug(t, "cli/backup.go passes cmd.OutOrStdout() as backup.Options.Stdout in --json mode (backup/backup.go:236 prints progress)")
 	api := newFakeAPI(t)
 	for _, p := range []string{"/api/inbox/", "/api/outbox/", "/api/drafts/"} {
 		api.json("GET "+p, http.StatusOK, docPage())
@@ -61,6 +59,34 @@ func TestBackup_JSONOutputIsParseable(t *testing.T) {
 	wantOK(t, res)
 	if decodeJSON(t, res.Out)["documents_fetched"] != float64(0) {
 		t.Errorf("unexpected JSON: %s", res.Out)
+	}
+}
+
+// In text mode the per-document progress lines and the "done:" line still
+// appear on stdout, ahead of the summary.
+func TestBackup_TextModeShowsProgressOnStdout(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/inbox/", http.StatusOK, docPage(sampleDoc("in-1")))
+	api.json("GET /api/outbox/", http.StatusOK, docPage())
+	api.json("GET /api/drafts/", http.StatusOK, docPage())
+	api.json("GET /api/documents/in-1", http.StatusOK, sampleDoc("in-1"))
+	api.json("GET /api/documents/in-1/timeline", http.StatusOK, map[string]any{"document_id": "in-1", "events": []any{}})
+	api.json("GET /api/documents/in-1/attachments", http.StatusOK, []any{})
+	api.json("GET /api/documents/in-1/ubl", http.StatusOK, map[string]any{
+		"id": "in-1", "file_name": "in-1.xml", "file_size": 3, "signed_url": api.fileURL("in-1.xml"),
+	})
+	api.handle("GET /files/in-1.xml", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<x/>")) })
+	useEnvKey(t, goodKey)
+
+	var stdout, stderr string
+	var err error
+	captureStderr(t, func() { stdout, stderr, err = runCLISplit(t, "", "backup", t.TempDir()) })
+	if err != nil {
+		t.Fatalf("backup failed: %v", err)
+	}
+	wantContains(t, stdout, "fetched in-1\n", "done: 1 fetched, 0 refreshed\n", "New documents")
+	if strings.Contains(stderr, "fetched") {
+		t.Errorf("progress leaked to stderr: %q", stderr)
 	}
 }
 

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -72,21 +71,24 @@ func runBackup(cmd *cobra.Command, args []string) error {
 
 	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 
+	// In --json mode stdout carries only the JSON summary, so the
+	// human-readable progress lines are suppressed, like every other
+	// command's text output.
+	r := output.FromContext(cmd.Context())
 	res, err := backup.Run(cmd.Context(), backup.Options{
 		Dir:         dir,
 		Layout:      layout,
 		Concurrency: concurrency,
-		Quiet:       flags.Quiet,
+		Quiet:       flags.Quiet || r.IsJSON(),
 		APIKey:      apiKey,
 		Client:      c,
 		Stdout:      cmd.OutOrStdout(),
-		Stderr:      os.Stderr,
+		Stderr:      cmd.ErrOrStderr(),
 	})
 	if err != nil {
 		return &ExitError{Err: err, Code: 1}
 	}
 
-	r := output.FromContext(cmd.Context())
 	if r.IsJSON() {
 		return r.JSON(map[string]any{
 			"documents_fetched":   res.DocumentsFetched,
