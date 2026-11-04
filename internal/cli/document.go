@@ -25,6 +25,7 @@ func newDocumentCmd() *cobra.Command {
 
 	cmd.AddCommand(newDocumentGetCmd())
 	cmd.AddCommand(newDocumentTimelineCmd())
+	cmd.AddCommand(newDocumentLifecycleCmd())
 	cmd.AddCommand(newAttachmentCmd())
 	cmd.AddCommand(newDocumentCreateCmd())
 	cmd.AddCommand(newDocumentSendCmd())
@@ -103,6 +104,15 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	if doc.PrecedingInvoiceDate != nil {
 		pairs = append(pairs, output.KVPair{Key: "Preceding Invoice Date", Value: *doc.PrecedingInvoiceDate})
 	}
+	if doc.BuyerReference != nil {
+		pairs = append(pairs, output.KVPair{Key: "Buyer Reference", Value: *doc.BuyerReference})
+	}
+	if doc.PurchaseOrder != nil {
+		pairs = append(pairs, output.KVPair{Key: "Purchase Order", Value: *doc.PurchaseOrder})
+	}
+	if doc.SalesOrder != nil {
+		pairs = append(pairs, output.KVPair{Key: "Sales Order", Value: *doc.SalesOrder})
+	}
 	pairs = append(pairs, output.KVPair{Key: "Created", Value: doc.CreatedAt.Format("2006-01-02")})
 	if err := r.KeyValue(pairs); err != nil {
 		return err
@@ -118,11 +128,17 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 		if doc.CustomerTaxID != nil {
 			partyPairs = append(partyPairs, output.KVPair{Key: "Customer Tax ID", Value: *doc.CustomerTaxID})
 		}
+		if doc.CustomerPhone != nil {
+			partyPairs = append(partyPairs, output.KVPair{Key: "Customer Phone", Value: *doc.CustomerPhone})
+		}
 		if doc.VendorName != nil {
 			partyPairs = append(partyPairs, output.KVPair{Key: "Vendor", Value: *doc.VendorName})
 		}
 		if doc.VendorTaxID != nil {
 			partyPairs = append(partyPairs, output.KVPair{Key: "Vendor Tax ID", Value: *doc.VendorTaxID})
+		}
+		if doc.VendorPhone != nil {
+			partyPairs = append(partyPairs, output.KVPair{Key: "Vendor Phone", Value: *doc.VendorPhone})
 		}
 		if err := r.KeyValue(partyPairs); err != nil {
 			return err
@@ -143,8 +159,14 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 		if doc.TotalTax != nil {
 			totalPairs = append(totalPairs, output.KVPair{Key: "VAT", Value: *doc.TotalTax + " " + cur})
 		}
+		if doc.TotalTaxInTaxCurrency != nil && doc.TaxCurrency != nil {
+			totalPairs = append(totalPairs, output.KVPair{Key: "VAT (" + *doc.TaxCurrency + ")", Value: *doc.TotalTaxInTaxCurrency + " " + *doc.TaxCurrency})
+		}
 		if doc.InvoiceTotal != nil {
 			totalPairs = append(totalPairs, output.KVPair{Key: "Total", Value: *doc.InvoiceTotal + " " + cur})
+		}
+		if doc.RoundingAmount != nil {
+			totalPairs = append(totalPairs, output.KVPair{Key: "Rounding", Value: *doc.RoundingAmount + " " + cur})
 		}
 		if doc.AmountDue != nil {
 			totalPairs = append(totalPairs, output.KVPair{Key: "Amount Due", Value: *doc.AmountDue + " " + cur})
