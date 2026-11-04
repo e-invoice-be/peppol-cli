@@ -3,8 +3,9 @@ package cli
 import (
 	"fmt"
 
-	"github.com/e-invoice-be/peppol-cli/internal/version"
 	"github.com/spf13/cobra"
+
+	"github.com/e-invoice-be/peppol-cli/internal/version"
 )
 
 func newVersionCmd() *cobra.Command {

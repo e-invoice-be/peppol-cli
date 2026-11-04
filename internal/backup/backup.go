@@ -64,7 +64,7 @@ type Options struct {
 	RetryBaseDelay time.Duration
 }
 
-// Result summarises a completed run.
+// Result summarizes a completed run.
 type Result struct {
 	DocumentsFetched   int
 	DocumentsRefreshed int
@@ -200,7 +200,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			_ = writeManifest(mfPath, mf)
 			return nil, fmt.Errorf("backing up document %s: %w", r.item.docID, r.err)
 		}
-		if err := persistEnvelope(opts.Dir, opts.Layout, opts.HTTPClient, r.envelope); err != nil {
+		if err := persistEnvelope(ctx, opts.Dir, opts.Layout, opts.HTTPClient, r.envelope); err != nil {
 			_ = writeManifest(mfPath, mf)
 			return nil, err
 		}
@@ -274,7 +274,7 @@ func validateOptions(opts *Options) error {
 	if opts.APIKey == "" {
 		return errors.New("backup: APIKey is required (used for tenant fingerprint)")
 	}
-	if err := os.MkdirAll(opts.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(opts.Dir, 0o755); err != nil { //nolint:gosec // G301: backup dir is user-chosen output; honor umask like other user-created dirs
 		return fmt.Errorf("creating backup dir: %w", err)
 	}
 	return nil
@@ -289,7 +289,7 @@ func fingerprintAPIKey(key string) string {
 
 func loadManifest(dir string) (*Manifest, string, error) {
 	mfPath := filepath.Join(dir, manifestName)
-	raw, err := os.ReadFile(mfPath)
+	raw, err := os.ReadFile(mfPath) //nolint:gosec // G304: manifest path is inside the user-chosen backup dir
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, mfPath, nil
 	}
@@ -333,7 +333,7 @@ func ensureLayout(dir string, layout Layout) error {
 		subdirs = append(subdirs, "documents")
 	}
 	for _, sd := range subdirs {
-		if err := os.MkdirAll(filepath.Join(dir, sd), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, sd), 0o755); err != nil { //nolint:gosec // G301: backup subdirs are user-facing output; honor umask
 			return fmt.Errorf("creating %s: %w", sd, err)
 		}
 	}
@@ -499,7 +499,7 @@ func withRetry[T any](ctx context.Context, opts Options, fn func() (*T, error)) 
 		}
 		lastErr = err
 		d := time.Duration(1<<attempt) * opts.RetryBaseDelay
-		d += time.Duration(rand.Int63n(int64(opts.RetryBaseDelay)))
+		d += time.Duration(rand.Int63n(int64(opts.RetryBaseDelay))) //nolint:gosec // G404: retry jitter, not security-sensitive
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -525,7 +525,7 @@ func retryWait(backoff time.Duration, err error) time.Duration {
 func isTransient(err error) bool {
 	var api *client.APIError
 	if errors.As(err, &api) {
-		if api.StatusCode == 429 || (api.StatusCode >= 500 && api.StatusCode < 600) {
+		if api.StatusCode == http.StatusTooManyRequests || (api.StatusCode >= 500 && api.StatusCode < 600) {
 			return true
 		}
 	}
@@ -567,7 +567,7 @@ func safeAttachmentFilenames(names []string) []string {
 
 // validatePathComponent rejects values that, if joined into a filesystem path,
 // could escape the backup directory. The check is deliberately strict — we
-// refuse the run rather than silently sanitising — because a value coming back
+// refuse the run rather than silently sanitizing — because a value coming back
 // untrusted from the API must never decide where bytes land on disk.
 func validatePathComponent(docID, kind, value string) error {
 	if value == "" {
@@ -582,13 +582,13 @@ func validatePathComponent(docID, kind, value string) error {
 
 // persistEnvelope writes one document's artifacts (UBL, attachments, envelope)
 // to disk, all atomically.
-func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env archiveEntry) error {
+func persistEnvelope(ctx context.Context, dir string, layout Layout, httpClient *http.Client, env archiveEntry) error {
 	id := env.Document.ID
 
 	if err := validatePathComponent(id, "document id", id); err != nil {
 		return err
 	}
-	// Sanitize first, then validate as defence-in-depth.
+	// Sanitize first, then validate as defense-in-depth.
 	rawNames := make([]string, len(env.Attachments))
 	for i, att := range env.Attachments {
 		rawNames[i] = att.FileName
@@ -602,10 +602,9 @@ func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env arc
 
 	// UBL XML — fetch the signed URL then write atomically. Best-effort: some
 	// documents (e.g. failed drafts) have no UBL.
-	ublMeta, err := getUBLMeta(env)
-	if err == nil && ublMeta != nil && ublMeta.SignedURL != nil {
+	if ublMeta := getUBLMeta(&env); ublMeta != nil && ublMeta.SignedURL != nil {
 		dest := ublPath(dir, layout, id)
-		if err := fetchURLToFile(httpClient, *ublMeta.SignedURL, dest); err != nil {
+		if err := fetchURLToFile(ctx, httpClient, *ublMeta.SignedURL, dest); err != nil {
 			return fmt.Errorf("fetching ubl for %s: %w", id, err)
 		}
 	}
@@ -616,7 +615,7 @@ func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env arc
 			continue
 		}
 		dest := attachmentPath(dir, layout, id, att.FileName)
-		if err := fetchURLToFile(httpClient, *att.FileURL, dest); err != nil {
+		if err := fetchURLToFile(ctx, httpClient, *att.FileURL, dest); err != nil {
 			return fmt.Errorf("fetching attachment %s/%s: %w", id, att.FileName, err)
 		}
 	}
@@ -626,10 +625,9 @@ func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env arc
 	if err != nil {
 		return fmt.Errorf("encoding envelope %s: %w", id, err)
 	}
-	switch layout {
-	case LayoutTree:
+	if layout == LayoutTree {
 		dest := filepath.Join(dir, "documents", id)
-		if err := os.MkdirAll(dest, 0o755); err != nil {
+		if err := os.MkdirAll(dest, 0o755); err != nil { //nolint:gosec // G301: backup subdirs are user-facing output; honor umask
 			return err
 		}
 		docOnly, _ := json.MarshalIndent(env.Document, "", "  ")
@@ -646,24 +644,25 @@ func persistEnvelope(dir string, layout Layout, httpClient *http.Client, env arc
 	return atomicWrite(stagingPath, raw)
 }
 
-// getUBLMeta hits /api/documents/{id}/ubl and returns the metadata. It needs
-// the API client, which isn't currently threaded into persistEnvelope. To keep
-// the call site small we let the worker pre-fetch UBL meta and attach it to
-// the envelope. For now we re-derive: in fetchDocument we'd ideally store it.
-// As an interim we treat env.Document.ID + a separate API call is not possible
-// here — so we put it onto archiveEntry. Update fetchDocument accordingly.
-func getUBLMeta(env archiveEntry) (*client.DocumentUBL, error) {
+// getUBLMeta returns the UBL metadata that fetchDocument pre-fetched from
+// /api/documents/{id}/ubl and attached to the envelope, or nil when the
+// document has no UBL (e.g. failed drafts).
+func getUBLMeta(env *archiveEntry) *client.DocumentUBL {
 	if env.UBL.FileName == "" && env.UBL.SignedURL == nil {
-		return nil, nil
+		return nil
 	}
-	return &env.UBL, nil
+	return &env.UBL
 }
 
 // fetchURLToFile streams a URL's body straight onto destPath via a temp file +
 // atomic rename. Avoids buffering the entire body in memory, which matters when
 // many large attachments are fetched concurrently.
-func fetchURLToFile(httpClient *http.Client, url, destPath string) error {
-	resp, err := httpClient.Get(url)
+func fetchURLToFile(ctx context.Context, httpClient *http.Client, url, destPath string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return err
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -711,7 +710,7 @@ func rebuildDocumentsJSONL(dir string) error {
 	return writeAtomic(filepath.Join(dir, "documents.jsonl"), func(w io.Writer) error {
 		var buf bytes.Buffer
 		for _, n := range names {
-			raw, err := os.ReadFile(filepath.Join(stagingPath, n))
+			raw, err := os.ReadFile(filepath.Join(stagingPath, n)) //nolint:gosec // G304: file names come from ReadDir of our own staging dir
 			if err != nil {
 				return err
 			}
@@ -743,12 +742,12 @@ func atomicWrite(path string, data []byte) error {
 
 // writeAtomic creates a temp file next to path, hands it to write, then syncs,
 // closes, and renames it over path. On any error the temp file is removed.
-// Centralises the temp-file + sync + rename ritual so streaming callers
+// Centralizes the temp-file + sync + rename ritual so streaming callers
 // (fetchURLToFile, rebuildDocumentsJSONL) get the same crash-safety guarantees
 // as atomicWrite without buffering their payload in memory first.
 func writeAtomic(path string, write func(io.Writer) error) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: backup subdirs are user-facing output; honor umask
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")

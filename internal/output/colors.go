@@ -52,7 +52,7 @@ func IsTTY(fd uintptr) bool {
 }
 
 // hasColor reports whether color output should be enabled.
-func hasColor(noColorFlag bool, isTTY bool) bool {
+func hasColor(noColorFlag, isTTY bool) bool {
 	if noColorFlag {
 		return false
 	}

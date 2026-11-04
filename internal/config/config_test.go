@@ -38,7 +38,7 @@ func TestSaveToAndLoadFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat error: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0600 {
+	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf("expected permissions 0600, got %o", perm)
 	}
 

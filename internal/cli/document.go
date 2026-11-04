@@ -10,9 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newDocumentCmd() *cobra.Command {
@@ -61,12 +62,12 @@ func runDocumentGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			return &ExitError{
-				Err:  fmt.Errorf("document not found. List documents with 'peppol inbox list' or 'peppol outbox list'"),
+				Err:  errors.New("document not found. List documents with 'peppol inbox list' or 'peppol outbox list'"),
 				Code: 4,
 			}
 		}
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}
@@ -82,65 +83,14 @@ func runDocumentGet(cmd *cobra.Command, args []string) error {
 }
 
 func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, full bool) error {
-	// Header section
-	pairs := []output.KVPair{
-		{Key: "ID", Value: doc.ID},
-		{Key: "Type", Value: string(doc.DocumentType)},
-		{Key: "State", Value: output.StatusBadge(string(doc.State))},
-		{Key: "Direction", Value: string(doc.Direction)},
-	}
-	if doc.InvoiceID != nil {
-		pairs = append(pairs, output.KVPair{Key: "Invoice ID", Value: *doc.InvoiceID})
-	}
-	if doc.InvoiceDate != nil {
-		pairs = append(pairs, output.KVPair{Key: "Invoice Date", Value: *doc.InvoiceDate})
-	}
-	if doc.DueDate != nil {
-		pairs = append(pairs, output.KVPair{Key: "Due Date", Value: *doc.DueDate})
-	}
-	if doc.PrecedingInvoiceID != nil {
-		pairs = append(pairs, output.KVPair{Key: "Preceding Invoice", Value: *doc.PrecedingInvoiceID})
-	}
-	if doc.PrecedingInvoiceDate != nil {
-		pairs = append(pairs, output.KVPair{Key: "Preceding Invoice Date", Value: *doc.PrecedingInvoiceDate})
-	}
-	if doc.BuyerReference != nil {
-		pairs = append(pairs, output.KVPair{Key: "Buyer Reference", Value: *doc.BuyerReference})
-	}
-	if doc.PurchaseOrder != nil {
-		pairs = append(pairs, output.KVPair{Key: "Purchase Order", Value: *doc.PurchaseOrder})
-	}
-	if doc.SalesOrder != nil {
-		pairs = append(pairs, output.KVPair{Key: "Sales Order", Value: *doc.SalesOrder})
-	}
-	pairs = append(pairs, output.KVPair{Key: "Created", Value: doc.CreatedAt.Format("2006-01-02")})
-	if err := r.KeyValue(pairs); err != nil {
+	if err := r.KeyValue(documentHeaderPairs(doc)); err != nil {
 		return err
 	}
 
 	// Parties section
 	if doc.CustomerName != nil || doc.VendorName != nil {
 		fmt.Fprintln(r.Writer())
-		var partyPairs []output.KVPair
-		if doc.CustomerName != nil {
-			partyPairs = append(partyPairs, output.KVPair{Key: "Customer", Value: *doc.CustomerName})
-		}
-		if doc.CustomerTaxID != nil {
-			partyPairs = append(partyPairs, output.KVPair{Key: "Customer Tax ID", Value: *doc.CustomerTaxID})
-		}
-		if doc.CustomerPhone != nil {
-			partyPairs = append(partyPairs, output.KVPair{Key: "Customer Phone", Value: *doc.CustomerPhone})
-		}
-		if doc.VendorName != nil {
-			partyPairs = append(partyPairs, output.KVPair{Key: "Vendor", Value: *doc.VendorName})
-		}
-		if doc.VendorTaxID != nil {
-			partyPairs = append(partyPairs, output.KVPair{Key: "Vendor Tax ID", Value: *doc.VendorTaxID})
-		}
-		if doc.VendorPhone != nil {
-			partyPairs = append(partyPairs, output.KVPair{Key: "Vendor Phone", Value: *doc.VendorPhone})
-		}
-		if err := r.KeyValue(partyPairs); err != nil {
+		if err := r.KeyValue(documentPartyPairs(doc)); err != nil {
 			return err
 		}
 	}
@@ -148,30 +98,7 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	// Totals section
 	if doc.Subtotal != nil || doc.InvoiceTotal != nil {
 		fmt.Fprintln(r.Writer())
-		cur := doc.Currency
-		if cur == "" {
-			cur = "EUR"
-		}
-		var totalPairs []output.KVPair
-		if doc.Subtotal != nil {
-			totalPairs = append(totalPairs, output.KVPair{Key: "Subtotal", Value: *doc.Subtotal + " " + cur})
-		}
-		if doc.TotalTax != nil {
-			totalPairs = append(totalPairs, output.KVPair{Key: "VAT", Value: *doc.TotalTax + " " + cur})
-		}
-		if doc.TotalTaxInTaxCurrency != nil && doc.TaxCurrency != nil {
-			totalPairs = append(totalPairs, output.KVPair{Key: "VAT (" + *doc.TaxCurrency + ")", Value: *doc.TotalTaxInTaxCurrency + " " + *doc.TaxCurrency})
-		}
-		if doc.InvoiceTotal != nil {
-			totalPairs = append(totalPairs, output.KVPair{Key: "Total", Value: *doc.InvoiceTotal + " " + cur})
-		}
-		if doc.RoundingAmount != nil {
-			totalPairs = append(totalPairs, output.KVPair{Key: "Rounding", Value: *doc.RoundingAmount + " " + cur})
-		}
-		if doc.AmountDue != nil {
-			totalPairs = append(totalPairs, output.KVPair{Key: "Amount Due", Value: *doc.AmountDue + " " + cur})
-		}
-		if err := r.KeyValue(totalPairs); err != nil {
+		if err := r.KeyValue(documentTotalPairs(doc)); err != nil {
 			return err
 		}
 	}
@@ -179,22 +106,7 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	// Payment section
 	if doc.PaymentTerm != nil || len(doc.PaymentDetails) > 0 {
 		fmt.Fprintln(r.Writer())
-		var payPairs []output.KVPair
-		if doc.PaymentTerm != nil {
-			payPairs = append(payPairs, output.KVPair{Key: "Payment Term", Value: *doc.PaymentTerm})
-		}
-		for _, pd := range doc.PaymentDetails {
-			if pd.IBAN != nil {
-				payPairs = append(payPairs, output.KVPair{Key: "IBAN", Value: *pd.IBAN})
-			}
-			if pd.SWIFT != nil {
-				payPairs = append(payPairs, output.KVPair{Key: "SWIFT", Value: *pd.SWIFT})
-			}
-			if pd.PaymentReference != nil {
-				payPairs = append(payPairs, output.KVPair{Key: "Reference", Value: *pd.PaymentReference})
-			}
-		}
-		if err := r.KeyValue(payPairs); err != nil {
+		if err := r.KeyValue(documentPaymentPairs(doc)); err != nil {
 			return err
 		}
 	}
@@ -202,52 +114,129 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 	// Line Items section (only with --full)
 	if full && len(doc.Items) > 0 {
 		fmt.Fprintln(r.Writer())
-		hasName, hasBaseQty, hasAttributes := false, false, false
-		for _, item := range doc.Items {
-			if item.Name != nil && *item.Name != "" {
-				hasName = true
-			}
-			if !isDefaultPriceBaseQuantity(item.PriceBaseQuantity) {
-				hasBaseQty = true
-			}
-			if len(item.ItemAttributes) > 0 {
-				hasAttributes = true
-			}
-		}
-		headers := []string{"#"}
-		if hasName {
-			headers = append(headers, "Name")
-		}
-		headers = append(headers, "Description", "Qty", "Unit Price")
-		if hasBaseQty {
-			headers = append(headers, "Base Qty")
-		}
-		headers = append(headers, "Amount")
-		if hasAttributes {
-			headers = append(headers, "Attributes")
-		}
-		var rows [][]string
-		for i, item := range doc.Items {
-			row := []string{fmt.Sprintf("%d", i+1)}
-			if hasName {
-				row = append(row, deref(item.Name, "-"))
-			}
-			row = append(row, deref(item.Description, "-"), deref(item.Quantity, "-"), deref(item.UnitPrice, "-"))
-			if hasBaseQty {
-				row = append(row, deref(item.PriceBaseQuantity, "1"))
-			}
-			row = append(row, deref(item.Amount, "-"))
-			if hasAttributes {
-				row = append(row, formatItemAttributes(item.ItemAttributes))
-			}
-			rows = append(rows, row)
-		}
+		headers, rows := documentItemsTable(doc.Items)
 		if err := r.Table(headers, rows); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// appendKV appends a key/value pair when value is non-nil.
+func appendKV(pairs []output.KVPair, key string, value *string) []output.KVPair {
+	if value == nil {
+		return pairs
+	}
+	return append(pairs, output.KVPair{Key: key, Value: *value})
+}
+
+func documentHeaderPairs(doc *client.DocumentResponse) []output.KVPair {
+	pairs := []output.KVPair{
+		{Key: "ID", Value: doc.ID},
+		{Key: "Type", Value: string(doc.DocumentType)},
+		{Key: "State", Value: output.StatusBadge(string(doc.State))},
+		{Key: "Direction", Value: string(doc.Direction)},
+	}
+	pairs = appendKV(pairs, "Invoice ID", doc.InvoiceID)
+	pairs = appendKV(pairs, "Invoice Date", doc.InvoiceDate)
+	pairs = appendKV(pairs, "Due Date", doc.DueDate)
+	pairs = appendKV(pairs, "Preceding Invoice", doc.PrecedingInvoiceID)
+	pairs = appendKV(pairs, "Preceding Invoice Date", doc.PrecedingInvoiceDate)
+	pairs = appendKV(pairs, "Buyer Reference", doc.BuyerReference)
+	pairs = appendKV(pairs, "Purchase Order", doc.PurchaseOrder)
+	pairs = appendKV(pairs, "Sales Order", doc.SalesOrder)
+	return append(pairs, output.KVPair{Key: "Created", Value: doc.CreatedAt.Format("2006-01-02")})
+}
+
+func documentPartyPairs(doc *client.DocumentResponse) []output.KVPair {
+	var pairs []output.KVPair
+	pairs = appendKV(pairs, "Customer", doc.CustomerName)
+	pairs = appendKV(pairs, "Customer Tax ID", doc.CustomerTaxID)
+	pairs = appendKV(pairs, "Customer Phone", doc.CustomerPhone)
+	pairs = appendKV(pairs, "Vendor", doc.VendorName)
+	pairs = appendKV(pairs, "Vendor Tax ID", doc.VendorTaxID)
+	pairs = appendKV(pairs, "Vendor Phone", doc.VendorPhone)
+	return pairs
+}
+
+func documentTotalPairs(doc *client.DocumentResponse) []output.KVPair {
+	cur := doc.Currency
+	if cur == "" {
+		cur = "EUR"
+	}
+	amount := func(key string, v *string) []output.KVPair {
+		if v == nil {
+			return nil
+		}
+		return []output.KVPair{{Key: key, Value: *v + " " + cur}}
+	}
+	var pairs []output.KVPair
+	pairs = append(pairs, amount("Subtotal", doc.Subtotal)...)
+	pairs = append(pairs, amount("VAT", doc.TotalTax)...)
+	if doc.TotalTaxInTaxCurrency != nil && doc.TaxCurrency != nil {
+		pairs = append(pairs, output.KVPair{Key: "VAT (" + *doc.TaxCurrency + ")", Value: *doc.TotalTaxInTaxCurrency + " " + *doc.TaxCurrency})
+	}
+	pairs = append(pairs, amount("Total", doc.InvoiceTotal)...)
+	pairs = append(pairs, amount("Rounding", doc.RoundingAmount)...)
+	pairs = append(pairs, amount("Amount Due", doc.AmountDue)...)
+	return pairs
+}
+
+func documentPaymentPairs(doc *client.DocumentResponse) []output.KVPair {
+	var pairs []output.KVPair
+	pairs = appendKV(pairs, "Payment Term", doc.PaymentTerm)
+	for _, pd := range doc.PaymentDetails {
+		pairs = appendKV(pairs, "IBAN", pd.IBAN)
+		pairs = appendKV(pairs, "SWIFT", pd.SWIFT)
+		pairs = appendKV(pairs, "Reference", pd.PaymentReference)
+	}
+	return pairs
+}
+
+// documentItemsTable builds the line-item table, adding the optional Name,
+// Base Qty and Attributes columns only when at least one item uses them.
+func documentItemsTable(items []client.LineItem) (headers []string, rows [][]string) {
+	hasName, hasBaseQty, hasAttributes := false, false, false
+	for _, item := range items {
+		if item.Name != nil && *item.Name != "" {
+			hasName = true
+		}
+		if !isDefaultPriceBaseQuantity(item.PriceBaseQuantity) {
+			hasBaseQty = true
+		}
+		if len(item.ItemAttributes) > 0 {
+			hasAttributes = true
+		}
+	}
+	headers = []string{"#"}
+	if hasName {
+		headers = append(headers, "Name")
+	}
+	headers = append(headers, "Description", "Qty", "Unit Price")
+	if hasBaseQty {
+		headers = append(headers, "Base Qty")
+	}
+	headers = append(headers, "Amount")
+	if hasAttributes {
+		headers = append(headers, "Attributes")
+	}
+	for i, item := range items {
+		row := []string{strconv.Itoa(i + 1)}
+		if hasName {
+			row = append(row, deref(item.Name, "-"))
+		}
+		row = append(row, deref(item.Description, "-"), deref(item.Quantity, "-"), deref(item.UnitPrice, "-"))
+		if hasBaseQty {
+			row = append(row, deref(item.PriceBaseQuantity, "1"))
+		}
+		row = append(row, deref(item.Amount, "-"))
+		if hasAttributes {
+			row = append(row, formatItemAttributes(item.ItemAttributes))
+		}
+		rows = append(rows, row)
+	}
+	return headers, rows
 }
 
 // isDefaultPriceBaseQuantity reports whether a line item's price base
@@ -294,12 +283,12 @@ func runDocumentTimeline(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			return &ExitError{
-				Err:  fmt.Errorf("document not found. List documents with 'peppol inbox list' or 'peppol outbox list'"),
+				Err:  errors.New("document not found. List documents with 'peppol inbox list' or 'peppol outbox list'"),
 				Code: 4,
 			}
 		}
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}
@@ -533,7 +522,7 @@ func runDocumentSend(cmd *cobra.Command, args []string) error {
 	doc, err := c.SendDocument(args[0], opts)
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
-			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+			return &ExitError{Err: errors.New("document not found"), Code: 4}
 		}
 		return handleDocumentError(err)
 	}
@@ -570,7 +559,7 @@ func runDocumentValidate(cmd *cobra.Command, args []string) error {
 	val, err := c.ValidateDocument(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
-			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+			return &ExitError{Err: errors.New("document not found"), Code: 4}
 		}
 		return handleDocumentError(err)
 	}
@@ -607,7 +596,7 @@ func renderValidation(r *output.Renderer, val *client.ValidationResponse) error 
 // handleDocumentError converts client errors to ExitErrors.
 func handleDocumentError(err error) error {
 	if errors.Is(err, client.ErrUnauthorized) {
-		return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+		return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 	}
 	return &ExitError{Err: err, Code: 1}
 }
@@ -652,7 +641,7 @@ func runDocumentDelete(cmd *cobra.Command, args []string) error {
 	result, err := c.DeleteDocument(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
-			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+			return &ExitError{Err: errors.New("document not found"), Code: 4}
 		}
 		return handleDocumentError(err)
 	}
@@ -692,7 +681,7 @@ func runDocumentUBL(cmd *cobra.Command, args []string) error {
 	ubl, err := c.GetDocumentUBL(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
-			return &ExitError{Err: fmt.Errorf("document not found"), Code: 4}
+			return &ExitError{Err: errors.New("document not found"), Code: 4}
 		}
 		return handleDocumentError(err)
 	}
@@ -703,11 +692,15 @@ func runDocumentUBL(cmd *cobra.Command, args []string) error {
 	}
 
 	if ubl.SignedURL == nil {
-		return &ExitError{Err: fmt.Errorf("no UBL file available for this document"), Code: 1}
+		return &ExitError{Err: errors.New("no UBL file available for this document"), Code: 1}
 	}
 
 	// Stream the UBL XML from the signed URL
-	resp, err := http.Get(*ubl.SignedURL)
+	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, *ubl.SignedURL, http.NoBody)
+	if err != nil {
+		return &ExitError{Err: fmt.Errorf("downloading UBL: %w", err), Code: 1}
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return &ExitError{Err: fmt.Errorf("downloading UBL: %w", err), Code: 1}
 	}
@@ -719,7 +712,7 @@ func runDocumentUBL(cmd *cobra.Command, args []string) error {
 
 	outputPath, _ := cmd.Flags().GetString("output")
 	if outputPath != "" {
-		f, err := os.Create(outputPath)
+		f, err := os.Create(outputPath) //nolint:gosec // G304: --output path is supplied by the user on purpose
 		if err != nil {
 			return &ExitError{Err: fmt.Errorf("creating output file: %w", err), Code: 1}
 		}
@@ -730,7 +723,7 @@ func runDocumentUBL(cmd *cobra.Command, args []string) error {
 		if err := f.Close(); err != nil {
 			return &ExitError{Err: fmt.Errorf("closing output file: %w", err), Code: 1}
 		}
-		r.Success(fmt.Sprintf("UBL XML written to %s", outputPath))
+		r.Success("UBL XML written to " + outputPath)
 		return nil
 	}
 

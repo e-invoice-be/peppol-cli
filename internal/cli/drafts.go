@@ -2,10 +2,10 @@ package cli
 
 import (
 	"errors"
-	"fmt"
+
+	"github.com/spf13/cobra"
 
 	"github.com/e-invoice-be/peppol-cli/internal/client"
-	"github.com/spf13/cobra"
 )
 
 func newDraftsCmd() *cobra.Command {
@@ -50,7 +50,7 @@ func runDraftsList(cmd *cobra.Command, args []string) error {
 	result, err := c.ListDrafts(draftsListFlags.ToParams())
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}

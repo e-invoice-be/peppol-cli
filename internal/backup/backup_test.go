@@ -105,7 +105,7 @@ func newFakeBackend(t *testing.T, inbox, outbox, drafts []seedDoc) *fakeBackend 
 	listHandler := func(docs []seedDoc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			fb.recordHit(r.URL.Path)
-			// honour ?date_from for top-up
+			// honor ?date_from for top-up
 			from := r.URL.Query().Get("date_from")
 			filtered := docs
 			if from != "" {
@@ -351,7 +351,7 @@ func findTempFiles(t *testing.T, root string) []string {
 	var out []string
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // best-effort walk: skip unreadable entries
 		}
 		if !info.IsDir() && strings.Contains(filepath.Base(p), ".tmp") {
 			out = append(out, p)
@@ -1001,11 +1001,11 @@ func assertNoEscapedFiles(t *testing.T, dir string) {
 	}
 	_ = filepath.Walk(parent, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
-			return nil
+			return nil //nolint:nilerr // best-effort walk: skip unreadable entries
 		}
 		absP, err := filepath.Abs(p)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // best-effort walk: skip entries we cannot resolve
 		}
 		if !strings.HasPrefix(absP, absDir+string(filepath.Separator)) && absP != absDir {
 			t.Errorf("file escaped backup dir: %s (dir = %s)", absP, absDir)

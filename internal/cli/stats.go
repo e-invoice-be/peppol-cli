@@ -7,8 +7,9 @@ import (
 	"sort"
 	"text/tabwriter"
 
-	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/spf13/cobra"
+
+	"github.com/e-invoice-be/peppol-cli/internal/client"
 )
 
 var (
@@ -40,7 +41,7 @@ func runStats(cmd *cobra.Command, args []string) error {
 	stats, err := c.GetStats(statsFrom, statsTo, statsAggregation)
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}

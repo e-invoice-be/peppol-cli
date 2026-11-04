@@ -3,10 +3,12 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"strconv"
+
+	"github.com/spf13/cobra"
 
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newLookupCmd() *cobra.Command {
@@ -38,7 +40,7 @@ func runLookup(cmd *cobra.Command, args []string) error {
 	result, err := c.LookupPeppolID(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}
@@ -134,7 +136,7 @@ func runLookupSearch(cmd *cobra.Command, args []string) error {
 	result, err := c.SearchPeppolParticipants(args[0], country)
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}
@@ -168,7 +170,7 @@ func renderSearchResults(r *output.Renderer, result *client.PeppolSearchResult) 
 				country = *p.Entities[0].CountryCode
 			}
 		}
-		docTypes := fmt.Sprintf("%d", len(p.DocumentTypes))
+		docTypes := strconv.Itoa(len(p.DocumentTypes))
 		rows = append(rows, []string{p.PeppolID, name, country, docTypes})
 	}
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,7 +57,7 @@ func NewOSKeyring() (*OSKeyring, error) {
 func (k *OSKeyring) Get() (string, error) {
 	item, err := k.ring.Get(keyringKey)
 	if err != nil {
-		if err == keyring.ErrKeyNotFound {
+		if errors.Is(err, keyring.ErrKeyNotFound) {
 			return "", nil
 		}
 		return "", fmt.Errorf("reading from keyring: %w", err)
@@ -73,7 +74,7 @@ func (k *OSKeyring) Set(apiKey string) error {
 
 func (k *OSKeyring) Remove() error {
 	err := k.ring.Remove(keyringKey)
-	if err == keyring.ErrKeyNotFound {
+	if errors.Is(err, keyring.ErrKeyNotFound) {
 		return nil
 	}
 	return err
@@ -108,10 +109,10 @@ func (f *FileKeyring) Get() (string, error) {
 }
 
 func (f *FileKeyring) Set(apiKey string) error {
-	if err := os.MkdirAll(f.dir, 0700); err != nil {
+	if err := os.MkdirAll(f.dir, 0o700); err != nil {
 		return fmt.Errorf("creating credentials directory: %w", err)
 	}
-	return os.WriteFile(filepath.Join(f.dir, f.filename), []byte(apiKey), 0600)
+	return os.WriteFile(filepath.Join(f.dir, f.filename), []byte(apiKey), 0o600)
 }
 
 func (f *FileKeyring) Remove() error {

@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
-var validSortFields = []string{"created_at", "invoice_date", "due_date", "invoice_total", "customer_name", "vendor_name", "invoice_id"}
-var validSortOrders = []string{"asc", "desc"}
+var (
+	validSortFields = []string{"created_at", "invoice_date", "due_date", "invoice_total", "customer_name", "vendor_name", "invoice_id"}
+	validSortOrders = []string{"asc", "desc"}
+)
 
 // CounterpartyMode determines which name column to show in the table.
 type CounterpartyMode int

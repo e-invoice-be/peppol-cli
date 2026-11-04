@@ -6,9 +6,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newValidateCmd() *cobra.Command {
@@ -46,7 +47,7 @@ func runValidatePeppolID(cmd *cobra.Command, args []string) error {
 	result, err := c.ValidatePeppolID(args[0])
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}
@@ -150,7 +151,7 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 		}
 		val, err = c.ValidateJSON(filePath)
 	default:
-		return &ExitError{Err: fmt.Errorf("provide a file path as argument or use --file -"), Code: 1}
+		return &ExitError{Err: errors.New("provide a file path as argument or use --file -"), Code: 1}
 	}
 
 	if err != nil {
@@ -203,7 +204,7 @@ func outputFileValidation(cmd *cobra.Command, val *client.ValidationResponse) er
 	}
 
 	if !val.IsValid {
-		return &ExitError{Err: fmt.Errorf("validation failed"), Code: 3}
+		return &ExitError{Err: errors.New("validation failed"), Code: 3}
 	}
 	return nil
 }
@@ -243,7 +244,7 @@ func renderFileValidation(r *output.Renderer, val *client.ValidationResponse) er
 
 func handleValidateError(err error) error {
 	if errors.Is(err, client.ErrUnauthorized) {
-		return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+		return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 	}
 	return &ExitError{Err: err, Code: 1}
 }

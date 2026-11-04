@@ -72,7 +72,7 @@ func TestGetMe_ServerError(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected APIError, got %v", err)
 	}
-	if apiErr.StatusCode != 500 {
+	if apiErr.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected status 500, got %d", apiErr.StatusCode)
 	}
 	if apiErr.Detail != "something broke" {
@@ -587,7 +587,7 @@ func TestLookupPeppolID_ValidationError(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected APIError, got %v", err)
 	}
-	if apiErr.StatusCode != 422 {
+	if apiErr.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("expected status 422, got %d", apiErr.StatusCode)
 	}
 	if apiErr.Detail != "Invalid Peppol ID format" {
@@ -735,7 +735,7 @@ func TestValidatePeppolID_ValidationError(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected APIError, got %v", err)
 	}
-	if apiErr.StatusCode != 422 {
+	if apiErr.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("expected status 422, got %d", apiErr.StatusCode)
 	}
 }
@@ -761,7 +761,7 @@ func TestMaskKey(t *testing.T) {
 
 func TestListAttachments_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
+		if r.Method != http.MethodGet {
 			t.Errorf("expected GET, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/documents/doc-1/attachments" {
@@ -844,7 +844,7 @@ func TestGetAttachment_NotFound(t *testing.T) {
 
 func TestAddAttachment_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/documents/doc-1/attachments" {
@@ -877,7 +877,7 @@ func TestAddAttachment_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp.Write([]byte("fake pdf content"))
+	tmp.WriteString("fake pdf content")
 	tmp.Close()
 	// Rename to test.pdf for predictable filename.
 	testFile := filepath.Join(t.TempDir(), "test.pdf")
@@ -898,7 +898,7 @@ func TestAddAttachment_Success(t *testing.T) {
 
 func TestDeleteAttachment_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "DELETE" {
+		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/documents/doc-1/attachments/att-1" {
@@ -923,7 +923,7 @@ func TestDeleteAttachment_Success(t *testing.T) {
 
 func TestCreateDocumentJSON_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/documents/" {
@@ -942,7 +942,7 @@ func TestCreateDocumentJSON_Success(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := filepath.Join(t.TempDir(), "invoice.json")
-	os.WriteFile(tmpFile, []byte(`{"document_type":"INVOICE","items":[{"description":"Test"}]}`), 0644)
+	os.WriteFile(tmpFile, []byte(`{"document_type":"INVOICE","items":[{"description":"Test"}]}`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	doc, err := c.CreateDocumentJSON(tmpFile, false)
@@ -965,7 +965,7 @@ func TestCreateDocumentJSON_ConstructPDF(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := filepath.Join(t.TempDir(), "invoice.json")
-	os.WriteFile(tmpFile, []byte(`{}`), 0644)
+	os.WriteFile(tmpFile, []byte(`{}`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	doc, err := c.CreateDocumentJSON(tmpFile, true)
@@ -984,7 +984,7 @@ func TestCreateDocumentJSON_Unauthorized(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := filepath.Join(t.TempDir(), "invoice.json")
-	os.WriteFile(tmpFile, []byte(`{}`), 0644)
+	os.WriteFile(tmpFile, []byte(`{}`), 0o644)
 
 	c := NewClient("bad-key", WithBaseURL(srv.URL))
 	_, err := c.CreateDocumentJSON(tmpFile, false)
@@ -1007,7 +1007,7 @@ func TestCreateDocumentFromUBL_Success(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := filepath.Join(t.TempDir(), "invoice.xml")
-	os.WriteFile(tmpFile, []byte(`<Invoice></Invoice>`), 0644)
+	os.WriteFile(tmpFile, []byte(`<Invoice></Invoice>`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	doc, err := c.CreateDocumentFromUBL(tmpFile)
@@ -1033,7 +1033,7 @@ func TestCreateDocumentFromPDF_Success(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := filepath.Join(t.TempDir(), "invoice.pdf")
-	os.WriteFile(tmpFile, []byte(`%PDF-fake`), 0644)
+	os.WriteFile(tmpFile, []byte(`%PDF-fake`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	doc, err := c.CreateDocumentFromPDF(tmpFile, "BE123", "BE456")
@@ -1127,7 +1127,7 @@ func TestValidateDocument_Invalid(t *testing.T) {
 
 func TestDeleteDocument_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "DELETE" {
+		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/documents/doc-123" {
@@ -1175,7 +1175,7 @@ func TestDeleteDocument_BadState(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected APIError, got %v", err)
 	}
-	if apiErr.StatusCode != 400 {
+	if apiErr.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d", apiErr.StatusCode)
 	}
 	if apiErr.Detail != "Document not in draft state" {
@@ -1233,7 +1233,7 @@ func TestValidateJSON_Valid(t *testing.T) {
 		if r.URL.Path != "/api/validate/json" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
@@ -1246,7 +1246,7 @@ func TestValidateJSON_Valid(t *testing.T) {
 
 	// Create a temp JSON file.
 	tmpFile := t.TempDir() + "/invoice.json"
-	os.WriteFile(tmpFile, []byte(`{"invoice_id": "INV-001"}`), 0644)
+	os.WriteFile(tmpFile, []byte(`{"invoice_id": "INV-001"}`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	val, err := c.ValidateJSON(tmpFile)
@@ -1274,7 +1274,7 @@ func TestValidateJSON_Invalid(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := t.TempDir() + "/invalid.json"
-	os.WriteFile(tmpFile, []byte(`{}`), 0644)
+	os.WriteFile(tmpFile, []byte(`{}`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	val, err := c.ValidateJSON(tmpFile)
@@ -1321,7 +1321,7 @@ func TestValidateUBL_Valid(t *testing.T) {
 		if r.URL.Path != "/api/validate/ubl" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		ct := r.Header.Get("Content-Type")
@@ -1347,7 +1347,7 @@ func TestValidateUBL_Valid(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := t.TempDir() + "/invoice.xml"
-	os.WriteFile(tmpFile, []byte(`<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"></Invoice>`), 0644)
+	os.WriteFile(tmpFile, []byte(`<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"></Invoice>`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	val, err := c.ValidateUBL(tmpFile)
@@ -1367,7 +1367,7 @@ func TestValidateUBL_Unauthorized(t *testing.T) {
 	defer srv.Close()
 
 	tmpFile := t.TempDir() + "/invoice.xml"
-	os.WriteFile(tmpFile, []byte(`<Invoice/>`), 0644)
+	os.WriteFile(tmpFile, []byte(`<Invoice/>`), 0o644)
 
 	c := NewClient("test-key", WithBaseURL(srv.URL))
 	_, err := c.ValidateUBL(tmpFile)
@@ -1435,7 +1435,7 @@ func TestClient_WithContext_Cancellation(t *testing.T) {
 	c := NewClient("key", WithBaseURL(srv.URL)).WithContext(ctx)
 	_, err := c.GetMe()
 	if err == nil {
-		t.Fatal("expected error from cancelled context")
+		t.Fatal("expected error from canceled context")
 	}
 	if !errors.Is(err, context.Canceled) {
 		// The error may be wrapped, check the string as fallback
@@ -1450,7 +1450,7 @@ func TestClient_WithContext_Cancellation(t *testing.T) {
 func TestListMailbox_SendsFiltersAndDecodesPage(t *testing.T) {
 	var got url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
+		if r.Method != http.MethodGet {
 			t.Errorf("expected GET, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/mailbox/" {
@@ -1558,7 +1558,7 @@ func TestListMailbox_OmitsUnsetFilters(t *testing.T) {
 
 func TestGetMailboxEmail_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
+		if r.Method != http.MethodGet {
 			t.Errorf("expected GET, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/mailbox/mail-7" {
@@ -1619,7 +1619,7 @@ func TestDownloadMailboxAttachment_ReturnsBytesAndContentType(t *testing.T) {
 	// PNG signature: binary content that is not valid UTF-8 or JSON.
 	content := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
+		if r.Method != http.MethodGet {
 			t.Errorf("expected GET, got %s", r.Method)
 		}
 		// The filename is one path segment: space, slash and '#' must be escaped.
@@ -1660,7 +1660,7 @@ func TestDownloadMailboxAttachment_NotFound(t *testing.T) {
 
 func TestReprocessMailboxEmail_Accepted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		if r.URL.Path != "/api/mailbox/mail-7/reprocess" {
@@ -1694,7 +1694,7 @@ func TestReprocessMailboxEmail_Conflict(t *testing.T) {
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("expected APIError, got %v", err)
 	}
-	if apiErr.StatusCode != 409 || apiErr.Detail != "Email is not in a reprocessable state" {
+	if apiErr.StatusCode != http.StatusConflict || apiErr.Detail != "Email is not in a reprocessable state" {
 		t.Errorf("unexpected API error: %+v", apiErr)
 	}
 }

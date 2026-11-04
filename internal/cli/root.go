@@ -2,15 +2,17 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
 	"github.com/e-invoice-be/peppol-cli/internal/version"
-	"github.com/spf13/cobra"
 )
 
 // GlobalFlags holds flags shared by all commands.
@@ -65,6 +67,15 @@ func NewRootCmd() *cobra.Command {
 
 // Execute runs the root command and exits with the appropriate code.
 func Execute() {
+	if code := execute(); code != 0 {
+		os.Exit(code)
+	}
+}
+
+// execute runs the root command and returns the process exit code. It is
+// split from Execute so deferred cleanup (signal handler teardown) runs
+// before os.Exit.
+func execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -72,7 +83,8 @@ func Execute() {
 	cmd.SetContext(ctx)
 	if err := cmd.Execute(); err != nil {
 		code := 1
-		if exitErr, ok := err.(*ExitError); ok {
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) {
 			code = exitErr.Code
 		}
 		if flags.JSON {
@@ -81,8 +93,9 @@ func Execute() {
 		} else if !flags.Quiet {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 		}
-		os.Exit(code)
+		return code
 	}
+	return 0
 }
 
 // clientOpts returns common client options based on global flags.

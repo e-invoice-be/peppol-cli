@@ -4,10 +4,11 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/config"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newMeCmd() *cobra.Command {
@@ -29,7 +30,7 @@ func runMe(cmd *cobra.Command, args []string) error {
 	tenant, err := c.GetMe()
 	if err != nil {
 		if errors.Is(err, client.ErrUnauthorized) {
-			return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+			return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 		}
 		return &ExitError{Err: err, Code: 1}
 	}
@@ -87,7 +88,7 @@ func resolveKey() (string, error) {
 	}
 	if key == "" {
 		return "", &ExitError{
-			Err:  fmt.Errorf("not authenticated — run 'peppol auth' or set PEPPOL_API_KEY"),
+			Err:  errors.New("not authenticated — run 'peppol auth' or set PEPPOL_API_KEY"),
 			Code: 2,
 		}
 	}

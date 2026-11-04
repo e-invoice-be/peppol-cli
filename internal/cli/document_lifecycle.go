@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 func newDocumentLifecycleCmd() *cobra.Command {
@@ -37,7 +38,7 @@ func runDocumentLifecycle(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if errors.Is(err, client.ErrNotFound) {
 			return &ExitError{
-				Err:  fmt.Errorf("document not found. List documents with 'peppol inbox list' or 'peppol outbox list'"),
+				Err:  errors.New("document not found. List documents with 'peppol inbox list' or 'peppol outbox list'"),
 				Code: 4,
 			}
 		}

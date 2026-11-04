@@ -9,13 +9,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
-var validMailboxStatuses = []string{"pending", "success", "failed"}
-var validMailboxSortFields = []string{"received_at", "created_at"}
+var (
+	validMailboxStatuses   = []string{"pending", "success", "failed"}
+	validMailboxSortFields = []string{"received_at", "created_at"}
+)
 
 func newMailboxCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -156,8 +159,10 @@ func renderMailboxEmail(r *output.Renderer, mail *client.InboundEmailResponse) e
 	if mail.Subject != nil {
 		pairs = append(pairs, output.KVPair{Key: "Subject", Value: *mail.Subject})
 	}
-	pairs = append(pairs, output.KVPair{Key: "Received", Value: mailboxReceived(mail).Format(tsLayout)})
-	pairs = append(pairs, output.KVPair{Key: "Processed", Value: yesNo(mail.Processed)})
+	pairs = append(pairs,
+		output.KVPair{Key: "Received", Value: mailboxReceived(mail).Format(tsLayout)},
+		output.KVPair{Key: "Processed", Value: yesNo(mail.Processed)},
+	)
 	if mail.ProcessedAt != nil {
 		pairs = append(pairs, output.KVPair{Key: "Processed At", Value: mail.ProcessedAt.Format(tsLayout)})
 	}
@@ -277,7 +282,7 @@ func writeMailboxAttachment(r *output.Renderer, att *client.MailboxAttachment, o
 		return nil
 	}
 
-	if err := os.WriteFile(outputPath, att.Content, 0o644); err != nil {
+	if err := os.WriteFile(outputPath, att.Content, 0o644); err != nil { //nolint:gosec // G306: user-requested output file; standard 0644 (umask applies)
 		return &ExitError{Err: fmt.Errorf("writing output file: %w", err), Code: 1}
 	}
 
@@ -337,7 +342,7 @@ func handleMailboxError(err error, resource string) error {
 		}
 	}
 	if errors.Is(err, client.ErrUnauthorized) {
-		return &ExitError{Err: fmt.Errorf("authentication failed (invalid API key)"), Code: 2}
+		return &ExitError{Err: errors.New("authentication failed (invalid API key)"), Code: 2}
 	}
 	return &ExitError{Err: err, Code: 1}
 }
