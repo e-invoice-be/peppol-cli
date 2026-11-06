@@ -304,7 +304,11 @@ func TestAuth_NoInputIsExitCode1(t *testing.T) {
 	isolateConfig(t)
 	res := runCLI(t, "", "auth")
 	wantCode(t, res, 1)
-	wantContains(t, res.Err.Error(), "reading input")
+	wantContains(t, res.Err.Error(), "no API key provided")
+
+	// A key piped without a trailing newline is accepted.
+	newFakeAPI(t).json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
+	wantOK(t, runCLI(t, goodKey, "auth"))
 }
 
 func TestAuth_RejectedKeyIsExitCode2AndStoresNothing(t *testing.T) {

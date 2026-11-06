@@ -109,6 +109,9 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		if r.IsJSON() {
+			return r.JSON(map[string]any{"output": outputPath, "size": n})
+		}
 		r.Success(fmt.Sprintf("Attachment written to %s (%s)", outputPath, formatFileSize(int(n))))
 		return nil
 	}

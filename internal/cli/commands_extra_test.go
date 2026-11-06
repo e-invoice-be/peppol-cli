@@ -68,6 +68,11 @@ func TestAttachmentGet_DetailsAndDownload(t *testing.T) {
 	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out)
 	wantOK(t, res)
 	wantContains(t, res.Out, "Attachment written to "+out+" (9 B)")
+	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out, "--json")
+	wantOK(t, res)
+	if m := decodeJSON(t, res.Out); m["output"] != out || m["size"] != float64(9) {
+		t.Errorf("unexpected JSON: %s", res.Out)
+	}
 	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out, "-q")
 	wantOK(t, res)
 	if res.Out != "" {

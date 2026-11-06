@@ -107,7 +107,7 @@ func isTerminal(r io.Reader) bool {
 func readAPIKey(cmd *cobra.Command) (string, error) {
 	fmt.Fprint(cmd.ErrOrStderr(), "Paste your API key: ")
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	if err != nil && (!errors.Is(err, io.EOF) || line == "") {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return "", &ExitError{Err: fmt.Errorf("reading input: %w", err), Code: 1}
 	}
 	apiKey := strings.TrimSpace(line)
