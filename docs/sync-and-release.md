@@ -29,15 +29,15 @@ Use subagents for the implementation work.
 ### Tooling
 - Go and golangci-lint are installed locally. If they're not on PATH, run `export PATH=$HOME/.local/go-sdk/go/bin:$HOME/go/bin:$PATH`.
 - Checks to run locally: `go build ./...` and `make check` (tidy, lint, govulncheck, race tests, coverage floor; the same checks CI runs). `make fmt` fixes formatting.
-- CI is `.github/workflows/ci.yml`. It runs the Lint, Vulnerability scan, Test and Build jobs on every push and on PRs, so each job shows up twice on a PR.
+- CI is `.github/workflows/ci.yml`. It runs the Lint, Vulnerability scan, Test and Build (a linux/darwin/windows matrix) jobs on every push and on PRs, so each job shows up twice on a PR.
 
 ### Release
 - Pushing a `v*` tag triggers `.github/workflows/release.yml`, which runs goreleaser (`.goreleaser.yml`). Goreleaser does two things:
   - creates a GitHub release with archives for linux, darwin and windows on amd64/arm64 (no windows/arm64), plus `checksums.txt`
   - pushes a formula update to `e-invoice-be/homebrew-tap` at `Formula/peppol-cli.rb`, with the commit message "Brew formula update for peppol-cli version vX.Y.Z". This step is "publishing the package". There is no npm or other registry.
-- Tags are annotated (`git tag -a vX.Y.Z -m "vX.Y.Z"`). The project is pre-1.0 and bumps the patch version each release (v0.0.7 → v0.0.8). Find the latest tag with `git tag --sort=-v:refname | head -1`.
-- The goreleaser changelog leaves out `docs:`, `test:` and `chore:` commits. Code changes must go in a `feat:` or `fix:` commit to show up in the release notes.
-- PRs are merged with a merge commit (`gh pr merge N --merge --delete-branch`), not squashed.
+- Tags are annotated (`git tag -a vX.Y.Z -m "vX.Y.Z"`). The project is pre-1.0 and bumps the patch version each release (for example v0.0.8 → v0.0.9). Find the latest tag with `git tag --sort=-v:refname | head -1`.
+- The goreleaser changelog leaves out `docs:`, `test:` and `chore:` commits. Because PRs are squashed, a PR with code changes needs a `feat:` or `fix:` title to show up in the release notes.
+- PRs are squash-merged (`gh pr merge N --squash --delete-branch`), so the PR title becomes the commit subject on `main`.
 
 ### Attribution
 - End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
@@ -103,11 +103,11 @@ Use subagents for the implementation work.
 
 6. **Get CI green.** Run `gh pr checks <N> --watch --interval 15`. If anything fails, read the logs (`gh run view <id> --log-failed`), have the subagent fix it, push, and watch again. Never merge on red or pending.
 
-7. **Merge.** Run `gh pr merge <N> --merge --delete-branch`, then `git checkout main && git pull`.
+7. **Merge.** Run `gh pr merge <N> --squash --delete-branch`, then `git checkout main && git pull`.
 
 8. **Release.**
    - Find the latest tag and bump the patch version.
-   - Run `git tag -a vX.Y.Z -m "vX.Y.Z"` on the merge commit, then `git push origin vX.Y.Z`.
+   - Run `git tag -a vX.Y.Z -m "vX.Y.Z"` on the squashed commit on `main`, then `git push origin vX.Y.Z`.
 
 9. **Verify the publish.**
    - Find the Release run with `gh run list --workflow release.yml -L 1`, then run `gh run watch <id> --exit-status`. It must succeed.
