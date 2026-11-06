@@ -634,13 +634,26 @@ func runDocumentDelete(cmd *cobra.Command, args []string) error {
 		return handleDocumentError(err)
 	}
 
+	return renderDeleteResult(cmd, result, result.IsDeleted, "Document")
+}
+
+// renderDeleteResult reports the outcome of a delete. A 2xx answer with
+// is_deleted: false is an error (exit 1), so the user and scripts can tell
+// that nothing was deleted. With --json, stdout is still the API's answer;
+// the error goes to stderr.
+// noun is capitalised ("Document"), as it starts the success message.
+func renderDeleteResult(cmd *cobra.Command, result any, isDeleted bool, noun string) error {
 	r := output.FromContext(cmd.Context())
 	if r.IsJSON() {
-		return r.JSON(result)
+		if err := r.JSON(result); err != nil {
+			return err
+		}
 	}
-
-	if result.IsDeleted {
-		r.Success("Document deleted.")
+	if !isDeleted {
+		return &ExitError{Err: fmt.Errorf("%s was not deleted", strings.ToLower(noun)), Code: 1}
+	}
+	if !r.IsJSON() {
+		r.Success(noun + " deleted.")
 	}
 	return nil
 }
