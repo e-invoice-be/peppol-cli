@@ -7,13 +7,13 @@ Go CLI (Cobra) for the [e-invoice.be](https://e-invoice.be) Peppol Access Point 
 
 ## Checks
 
-- `make check` runs everything CI runs (tidy, lint, govulncheck, race tests, 85% coverage floor); run it before pushing.
+- `make check` runs tidy, lint, govulncheck, race tests and the 85% coverage floor; run it before pushing. The CI Build job cross-compiles `./cmd/peppol/` for linux, darwin and windows on its own.
 - `make lint` uses whatever `golangci-lint` is on PATH; CI pins the version in `.github/workflows/ci.yml`, so match it locally.
 - `.golangci.yml` is strict. Fix findings; a `//nolint` names one linter and carries a `// reason` (nolintlint enforces this).
 
 ## Layout
 
-- `internal/output`: the renderer every command writes through (JSON, key-value, tables, `--quiet`, colour).
+- `internal/output`: the renderer API commands write through (JSON, key-value, tables, `--quiet`, colour). `version`, `auth`, and `workspace add` / `use` / `remove` print with `fmt`. `completion` writes a shell script.
 - `internal/client/generated.go`: API types maintained by hand from `api/openapi.json`. `make generate` only prints a note: oapi-codegen cannot read OpenAPI 3.1.
 - `README.md` and `skills/peppol/` (`SKILL.md` + `references/*.md`): the user docs for every command and flag.
 
@@ -21,10 +21,10 @@ Go CLI (Cobra) for the [e-invoice.be](https://e-invoice.be) Peppol Access Point 
 
 `internal/cli/me.go` is the reference:
 
-1. `newXxxCmd() *cobra.Command` builds the command and flags; register it in `root.go`.
+1. `newXxxCmd() *cobra.Command` builds the command and flags. Register a top-level command in `root.go`. Register a subcommand with `AddCommand` on its parent (`newDocumentCmd` in `document.go`).
 2. `runXxx(cmd, args)`: `resolveKey()` → `client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())` → API call → render.
-3. Render with `r := output.FromContext(cmd.Context())`: `if r.IsJSON() { return r.JSON(v) }`, otherwise `r.KeyValue(...)` / `r.Table(...)`.
-4. Return `&ExitError{Err: ..., Code: N}`: 1 general, 2 auth (`client.ErrUnauthorized`, no key), 3 validation failed, 4 not found (`client.ErrNotFound`).
+3. Render with `r := output.FromContext(cmd.Context())`: `if r.IsJSON() { return r.JSON(v) }`, otherwise `r.KeyValue(...)` / `r.Table(...)`. `mailbox attachment` with no `-o` writes the raw bytes to stdout in both modes.
+4. Return `&ExitError{Err: ..., Code: N}`: 1 general (bad args, missing files, other failures), 2 auth (`client.ErrUnauthorized`, no key), 3 `validate json` / `validate ubl` when the document is invalid, 4 not found (`client.ErrNotFound`).
 
 Client methods build requests with `http.NewRequestWithContext(c.ctx, ...)` so Ctrl-C cancels them; compare errors with `errors.Is`/`errors.As`.
 

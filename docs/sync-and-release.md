@@ -18,7 +18,7 @@ Use subagents for the implementation work.
 - `CLAUDE.md` describes the command pattern, test pattern and where docs live. Read it first.
 - The committed spec copy is `api/openapi.json`. It is a single minified line with no trailing newline. Keep that format when replacing it.
 - **`info.version` is not a reliable change signal.** It has stayed `1.1.0` while paths and schemas changed. Always compare the content.
-- `internal/client/generated.go` is **maintained by hand**, despite its name. oapi-codegen can't handle OpenAPI 3.1 nullable unions, and `scripts/generate-client.sh` / `make generate` does nothing. Spec changes must be translated into Go types by hand.
+- `internal/client/generated.go` is **maintained by hand**, despite its name. oapi-codegen can't handle OpenAPI 3.1 nullable unions, and `scripts/generate-client.sh` / `make generate` only prints a note and does not regenerate types. Spec changes must be translated into Go types by hand.
 - Nullable fields in `generated.go` are pointers. Where the spec marks a nullable field as required, keep it without `omitempty` so it serializes as `null`.
 - The CLI sends document-create JSON files as-is; there is no create struct. New create-only fields usually need only docs updates.
 - Apart from the code, these places often need updating when the spec changes:
@@ -28,7 +28,7 @@ Use subagents for the implementation work.
 
 ### Tooling
 - Go and golangci-lint are installed locally. If they're not on PATH, run `export PATH=$HOME/.local/go-sdk/go/bin:$HOME/go/bin:$PATH`.
-- Checks to run locally: `go build ./...` and `make check` (tidy, lint, govulncheck, race tests, coverage floor; the same checks CI runs). `make fmt` fixes formatting.
+- Checks to run locally: `go build ./...` and `make check` (tidy, lint, govulncheck, race tests, coverage floor). Those are the Lint, Vulnerability scan and Test jobs. The Build matrix is CI-only. `make fmt` fixes formatting.
 - CI is `.github/workflows/ci.yml`. It runs the Lint, Vulnerability scan, Test and Build (a linux/darwin/windows matrix) jobs on every push and on PRs, so each job shows up twice on a PR.
 
 ### Release
@@ -61,6 +61,11 @@ Use subagents for the implementation work.
                  if k not in x: print('ADDED', p + '/' + k)
                  elif k not in y: print('REMOVED', p + '/' + k)
                  else: walk(x[k], y[k], p + '/' + k)
+         elif isinstance(x, list):
+             n = min(len(x), len(y))
+             for i in range(n): walk(x[i], y[i], p + '/' + str(i))
+             for i in range(n, len(x)): print('REMOVED', p + '/' + str(i))
+             for i in range(n, len(y)): print('ADDED', p + '/' + str(i))
          elif x != y: print('VAL', p, repr(x)[:80], '=>', repr(y)[:80])
      walk(a, b, '')
      ```
