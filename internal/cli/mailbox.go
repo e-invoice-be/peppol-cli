@@ -186,7 +186,7 @@ func renderMailboxEmail(r *output.Renderer, mail *client.InboundEmailResponse) e
 	for _, a := range mail.Attachments {
 		size := "-"
 		if a.Size != nil {
-			size = formatFileSize(*a.Size)
+			size = formatFileSize(int64(*a.Size))
 		}
 		rows = append(rows, []string{a.Filename, deref(a.ContentType, "-"), size})
 	}
@@ -294,7 +294,7 @@ func writeMailboxAttachment(r *output.Renderer, att *client.MailboxAttachment, o
 		})
 	}
 
-	r.Success(fmt.Sprintf("Attachment written to %s (%s)", outputPath, formatFileSize(len(att.Content))))
+	r.Success(fmt.Sprintf("Attachment written to %s (%s)", outputPath, formatFileSize(int64(len(att.Content)))))
 	return nil
 }
 
