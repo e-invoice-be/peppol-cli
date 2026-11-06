@@ -96,18 +96,24 @@ func renderValidationResult(r *output.Renderer, result *client.PeppolIdValidatio
 		return err
 	}
 
-	if len(result.SupportedDocumentTypes) > 0 {
-		fmt.Fprintf(r.Writer(), "\nSupported Document Types (%d):\n", len(result.SupportedDocumentTypes))
-		headers := []string{"TYPE", "PROFILE"}
-		var rows [][]string
-		for _, dt := range result.SupportedDocumentTypes {
-			docType, profile := parseDocumentTypeURN(dt)
-			rows = append(rows, []string{docType, profile})
-		}
-		return r.Table(headers, rows)
+	// The caption and the blank line before it introduce the table. Quiet
+	// mode suppresses that whole section, same as KeyValue and Table.
+	if len(result.SupportedDocumentTypes) == 0 || r.IsQuiet() {
+		return nil
 	}
-
-	return nil
+	if err := r.Gap(); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(r.Writer(), "Supported Document Types (%d):\n", len(result.SupportedDocumentTypes)); err != nil {
+		return err
+	}
+	headers := []string{"TYPE", "PROFILE"}
+	var rows [][]string
+	for _, dt := range result.SupportedDocumentTypes {
+		docType, profile := parseDocumentTypeURN(dt)
+		rows = append(rows, []string{docType, profile})
+	}
+	return r.Table(headers, rows)
 }
 
 // --- File validation commands ---

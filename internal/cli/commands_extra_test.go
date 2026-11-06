@@ -859,6 +859,19 @@ func TestLookup_QuietPrintsNothing(t *testing.T) {
 	wantQuiet(t, runCLI(t, "", "lookup", "0208:0123", "--quiet"))
 }
 
+func TestLookupSearch_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/lookup/participants", http.StatusOK, map[string]any{
+		"total_count": 1,
+		"participants": []map[string]any{{
+			"peppol_id": "0208:1", "entities": []map[string]any{{"name": "ACME", "country_code": "BE"}},
+		}},
+	})
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "lookup", "search", "acme", "--quiet"))
+}
+
 func TestValidateJSON_WithIssues_QuietPrintsNothing(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("POST /api/validate/json", http.StatusOK, map[string]any{
@@ -869,4 +882,18 @@ func TestValidateJSON_WithIssues_QuietPrintsNothing(t *testing.T) {
 	file := writeTempFile(t, "inv.json", `{"ok":true}`)
 
 	wantQuiet(t, runCLI(t, "", "validate", "json", file, "--quiet"))
+}
+
+func TestValidatePeppolID_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/validate/peppol-id", http.StatusOK, map[string]any{
+		"is_valid": true, "dns_valid": true, "business_card_valid": true,
+		"business_card": map[string]any{"name": "ACME", "country_code": "BE"},
+		"supported_document_types": []string{
+			"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1",
+		},
+	})
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "validate", "peppol-id", "0208:good", "--quiet"))
 }
