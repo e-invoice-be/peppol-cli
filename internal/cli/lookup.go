@@ -155,13 +155,12 @@ func runLookupSearch(cmd *cobra.Command, args []string) error {
 }
 
 func renderSearchResults(r *output.Renderer, result *client.PeppolSearchResult) error {
-	// The count line and the blank line under it introduce the table. Quiet
-	// mode suppresses that whole section, same as KeyValue and Table.
-	if r.IsQuiet() {
-		return nil
-	}
 	if _, err := fmt.Fprintf(r.Writer(), "Found %d participants\n", result.TotalCount); err != nil {
 		return err
+	}
+	// Blank line and table are non-essential; the heading stays visible under --quiet.
+	if r.IsQuiet() {
+		return nil
 	}
 	if err := r.Gap(); err != nil {
 		return err

@@ -859,7 +859,7 @@ func TestLookup_QuietPrintsNothing(t *testing.T) {
 	wantQuiet(t, runCLI(t, "", "lookup", "0208:0123", "--quiet"))
 }
 
-func TestLookupSearch_QuietPrintsNothing(t *testing.T) {
+func TestLookupSearch_QuietSkipsGapAndTable(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/lookup/participants", http.StatusOK, map[string]any{
 		"total_count": 1,
@@ -869,7 +869,11 @@ func TestLookupSearch_QuietPrintsNothing(t *testing.T) {
 	})
 	useEnvKey(t, goodKey)
 
-	wantQuiet(t, runCLI(t, "", "lookup", "search", "acme", "--quiet"))
+	res := runCLI(t, "", "lookup", "search", "acme", "--quiet")
+	wantOK(t, res)
+	if want := "Found 1 participants\n"; res.Out != want {
+		t.Errorf("quiet lookup search stdout = %q, want %q", res.Out, want)
+	}
 }
 
 func TestValidateJSON_WithIssues_QuietPrintsNothing(t *testing.T) {
@@ -884,7 +888,7 @@ func TestValidateJSON_WithIssues_QuietPrintsNothing(t *testing.T) {
 	wantQuiet(t, runCLI(t, "", "validate", "json", file, "--quiet"))
 }
 
-func TestValidatePeppolID_QuietPrintsNothing(t *testing.T) {
+func TestValidatePeppolID_QuietSkipsGapAndTable(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/validate/peppol-id", http.StatusOK, map[string]any{
 		"is_valid": true, "dns_valid": true, "business_card_valid": true,
@@ -895,5 +899,9 @@ func TestValidatePeppolID_QuietPrintsNothing(t *testing.T) {
 	})
 	useEnvKey(t, goodKey)
 
-	wantQuiet(t, runCLI(t, "", "validate", "peppol-id", "0208:good", "--quiet"))
+	res := runCLI(t, "", "validate", "peppol-id", "0208:good", "--quiet")
+	wantOK(t, res)
+	if want := "Supported Document Types (1):\n"; res.Out != want {
+		t.Errorf("quiet validate peppol-id stdout = %q, want %q", res.Out, want)
+	}
 }
