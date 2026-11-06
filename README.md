@@ -144,6 +144,10 @@ peppol stats --from 2026-01-01 --to 2026-03-01 --aggregation MONTH
 
 # JSON output (available for all commands)
 peppol me --json
+
+# Draft delete: if the API answers with is_deleted: false, the command exits 1
+# and reports that nothing was deleted (stdout still holds the API JSON with --json)
+peppol document delete <document-id> --yes
 ```
 
 ### Global Flags

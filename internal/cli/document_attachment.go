@@ -235,17 +235,8 @@ func runAttachmentDelete(cmd *cobra.Command, args []string) error {
 		return handleAttachmentError(err)
 	}
 
-	r := output.FromContext(cmd.Context())
-
-	// Same output as "document delete": the API's is_deleted.
-	if r.IsJSON() {
-		return r.JSON(result)
-	}
-
-	if result.IsDeleted {
-		r.Success("Attachment deleted.")
-	}
-	return nil
+	// Same output as "document delete".
+	return renderDeleteResult(cmd, result, result.IsDeleted, "Attachment")
 }
 
 func handleAttachmentError(err error) error {

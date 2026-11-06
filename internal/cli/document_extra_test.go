@@ -392,6 +392,35 @@ func TestDocumentDelete_ConfirmationAndResults(t *testing.T) {
 	}
 }
 
+// A 2xx answer with is_deleted: false must not look like success: the
+// command says nothing was deleted and exits 1. With --json, stdout is still
+// the API's answer.
+func TestDocumentDelete_NotDeleted(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("DELETE /api/documents/doc-1", http.StatusOK, map[string]any{"is_deleted": false})
+	useEnvKey(t, goodKey)
+
+	res := runCLI(t, "", "document", "delete", "doc-1", "--yes")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "document was not deleted")
+	if strings.Contains(res.Out, "Document deleted.") {
+		t.Errorf("reported success for is_deleted=false:\n%s", res.Out)
+	}
+
+	stdout, _, err := runCLISplit(t, "", "document", "delete", "doc-1", "--yes", "--json")
+	wantCode(t, cliResult{Out: stdout, Err: err}, 1)
+	if m := decodeJSON(t, stdout); m["is_deleted"] != false || len(m) != 1 {
+		t.Errorf("unexpected JSON: %s", stdout)
+	}
+
+	api.json("DELETE /api/documents/doc-1", http.StatusOK, map[string]any{"is_deleted": false})
+	stdout, stderr, err := runCLISplit(t, "", "document", "delete", "doc-1", "--yes", "-q")
+	wantCode(t, cliResult{Err: err}, 1)
+	if stdout != "" || stderr != "" {
+		t.Errorf("--quiet should print nothing:\nstdout=%q\nstderr=%q", stdout, stderr)
+	}
+}
+
 func TestDocumentDelete_AbortNeedsNoCredentials(t *testing.T) {
 	isolateConfig(t)
 	res := runCLI(t, "n\n", "document", "delete", "doc-1")
