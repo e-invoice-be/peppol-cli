@@ -588,8 +588,10 @@ func TestValidatePeppolID(t *testing.T) {
 
 func validationRoute(api *fakeAPI, route string) {
 	api.handle(route, func(w http.ResponseWriter, r *http.Request) {
+		// Match the fixture contents, not a bare "bad": the random hex
+		// boundary of a multipart upload can contain those letters.
 		body, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(body), "bad") {
+		if strings.Contains(string(body), `{"bad":true}`) || strings.Contains(string(body), "<bad/>") {
 			writeJSON(w, http.StatusOK, map[string]any{"is_valid": false, "issues": []map[string]any{
 				{"type": "error", "message": "Missing buyer", "rule_id": "BR-07", "location": "/Invoice"},
 				{"type": "warning", "message": "Odd date"},

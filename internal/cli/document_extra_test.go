@@ -516,16 +516,6 @@ func TestDocumentUBL_UnwritableOutputIsExitCode1(t *testing.T) {
 
 // --- --quiet section gaps ---
 
-// wantQuiet asserts that a successful --quiet run printed nothing at all, not
-// even the blank lines between output sections.
-func wantQuiet(t *testing.T, res cliResult) {
-	t.Helper()
-	wantOK(t, res)
-	if res.Out != "" {
-		t.Errorf("--quiet printed output:\n%q", res.Out)
-	}
-}
-
 func TestDocumentGet_QuietPrintsNothing(t *testing.T) {
 	api := newFakeAPI(t)
 	doc := sampleDoc("doc-1")
