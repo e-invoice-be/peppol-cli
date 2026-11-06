@@ -114,9 +114,11 @@ func renderValidationResult(r *output.Renderer, result *client.PeppolIdValidatio
 
 func newValidateJSONCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "json <file>",
-		Short:   "Validate a JSON document against Peppol BIS Billing 3.0",
-		Long:    "Validate a JSON invoice file against Peppol BIS Billing 3.0 rules.\nUse --file - to read from stdin.",
+		Use:   "json <file>",
+		Short: "Validate a JSON document against Peppol BIS Billing 3.0",
+		Long: "Validate a JSON invoice file against Peppol BIS Billing 3.0 rules.\n" +
+			"Use - as the file argument or --file - to read from stdin. If a file literally named - exists " +
+			"in the current directory, that file is opened instead; use --file - to force stdin.",
 		Example: "  peppol validate json invoice.json\n  cat invoice.json | peppol validate json --file -",
 		Args:    cobra.MaximumNArgs(1),
 		RunE:    runValidateJSON,
@@ -130,9 +132,9 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 
 	// Check the input before credentials, so a usage mistake is reported as
 	// such (exit code 1) rather than as an auth error.
-	// Only --file - reads stdin. A positional "-" is a filename: folding it
-	// into the stdin case made `validate json -` block on the terminal (or
-	// send the wrong bytes) instead of opening a file named "-".
+	// A positional "-" reads stdin when no file named "-" exists (common
+	// Unix convention); if ./- exists, it is read instead. --file - always
+	// reads stdin.
 	var filePath string
 	fromStdin := false
 	switch {
@@ -141,7 +143,20 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 	case fileFlag != "":
 		filePath = fileFlag
 	case len(args) == 1:
-		filePath = args[0]
+		arg := args[0]
+		if arg == "-" {
+			if _, statErr := os.Stat(arg); statErr != nil {
+				if os.IsNotExist(statErr) {
+					fromStdin = true
+				} else {
+					return &ExitError{Err: fmt.Errorf("file not found: %s", arg), Code: 1}
+				}
+			} else {
+				filePath = arg
+			}
+		} else {
+			filePath = arg
+		}
 	default:
 		return &ExitError{Err: errors.New("provide a file path as argument or use --file -"), Code: 1}
 	}
