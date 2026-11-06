@@ -69,7 +69,9 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Fprintln(r.Writer())
+	if _, err := fmt.Fprintln(r.Writer()); err != nil {
+		return err
+	}
 	return r.Table([]string{"Date", "Sent", "Received"}, statsActionRows(stats.Actions))
 }
 

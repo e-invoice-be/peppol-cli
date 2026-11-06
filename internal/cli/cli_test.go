@@ -253,24 +253,37 @@ func TestStatsCmd_JSONOutput(t *testing.T) {
 }
 
 func TestStatsCmd_TextOutput(t *testing.T) {
-	srv := newStatsTestServer(t)
-	defer srv.Close()
+	// Exercise the full command (renderer + statsActionRows), not only the client.
+	api := newFakeAPI(t)
+	api.json("GET /api/stats", http.StatusOK, map[string]any{
+		"tenant_id": "t-123", "period_start": "2026-01-01", "period_end": "2026-03-27", "aggregation": "DAY",
+		"total_days": 86, "average_daily_usage": 3.5,
+		"actions": []map[string]any{
+			{"action": "DOCUMENT_SENT", "stat_date": "2026-01-01", "count": 5},
+			{"action": "DOCUMENT_RECEIVED", "stat_date": "2026-01-01", "count": 3},
+			{"action": "DOCUMENT_SENT", "stat_date": "2026-01-02", "count": 2},
+		},
+	})
+	useEnvKey(t, goodKey)
 
-	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
-	stats, err := c.GetStats("", "", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	res := runCLI(t, "", "stats")
+	wantOK(t, res)
+	wantContains(t, res.Out,
+		"Period               2026-01-01 to 2026-03-27\n",
+		"Aggregation          DAY\n",
+		"Total Days           86\n",
+		"Average Daily Usage  3.50\n",
+	)
+	wantContains(t, strings.ToUpper(res.Out), "DATE", "SENT", "RECEIVED")
+	cell := regexp.MustCompile(`[^\s│|]+`)
+	var rows [][]string
+	for _, line := range strings.Split(res.Out, "\n") {
+		if f := cell.FindAllString(line, -1); len(f) == 3 && strings.HasPrefix(f[0], "2026-") {
+			rows = append(rows, f)
+		}
 	}
-
-	// Verify key fields are present in the response
-	if stats.PeriodStart != "2026-01-01" {
-		t.Errorf("expected period start '2026-01-01', got %q", stats.PeriodStart)
-	}
-	if stats.TotalDays != 86 {
-		t.Errorf("expected total days 86, got %d", stats.TotalDays)
-	}
-	if len(stats.Actions) != 3 {
-		t.Errorf("expected 3 actions, got %d", len(stats.Actions))
+	if want := [][]string{{"2026-01-01", "5", "3"}, {"2026-01-02", "2", "0"}}; !reflect.DeepEqual(rows, want) {
+		t.Errorf("table rows = %v, want %v\noutput:\n%s", rows, want, res.Out)
 	}
 }
 
