@@ -79,7 +79,9 @@ func renderLookupResult(r *output.Renderer, result *client.PeppolIdLookupRespons
 
 	// Business card entities
 	if result.BusinessCard != nil && len(result.BusinessCard.Entities) > 0 {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		var entityPairs []output.KVPair
 		for _, e := range result.BusinessCard.Entities {
 			if e.Name != nil {
@@ -101,7 +103,9 @@ func renderLookupResult(r *output.Renderer, result *client.PeppolIdLookupRespons
 
 	// Errors
 	if len(result.Errors) > 0 {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		for _, e := range result.Errors {
 			r.Error(e)
 		}

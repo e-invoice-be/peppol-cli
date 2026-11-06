@@ -180,7 +180,9 @@ func renderMailboxEmail(r *output.Renderer, mail *client.InboundEmailResponse) e
 		return nil
 	}
 
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	headers := []string{"Filename", "Type", "Size"}
 	var rows [][]string
 	for _, a := range mail.Attachments {
@@ -328,7 +330,9 @@ func runMailboxReprocess(cmd *cobra.Command, args []string) error {
 	}
 
 	r.Success("Reprocessing started.")
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	return renderMailboxEmail(r, mail)
 }
 

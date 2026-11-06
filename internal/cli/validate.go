@@ -238,7 +238,9 @@ func renderFileValidation(r *output.Renderer, val *client.ValidationResponse) er
 		return nil
 	}
 
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	headers := []string{"SEVERITY", "RULE ID", "MESSAGE", "LOCATION"}
 	var rows [][]string
 	for _, issue := range val.Issues {

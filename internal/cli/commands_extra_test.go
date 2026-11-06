@@ -831,3 +831,40 @@ func TestVersionCommand(t *testing.T) {
 		t.Error("version should reject arguments")
 	}
 }
+
+// --- --quiet section gaps ---
+
+func TestMailboxGet_WithAttachments_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/mailbox/m1", http.StatusOK, sampleMail("m1"))
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "mailbox", "get", "m1", "--quiet"))
+}
+
+func TestLookup_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/lookup", http.StatusOK, map[string]any{
+		"status":        "success",
+		"queryMetadata": map[string]any{"identifierScheme": "iso6523", "identifierValue": "0208:0123"},
+		"dnsInfo":       map[string]any{"status": "success", "smpHostname": "smp.example"},
+		"businessCard": map[string]any{"status": "success", "entities": []map[string]any{{
+			"name": "ACME NV", "countryCode": "BE", "identifiers": []map[string]any{{"scheme": "0208", "value": "0123"}},
+		}}},
+	})
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "lookup", "0208:0123", "--quiet"))
+}
+
+func TestValidateJSON_WithIssues_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("POST /api/validate/json", http.StatusOK, map[string]any{
+		"is_valid": true,
+		"issues":   []map[string]any{{"type": "warning", "message": "Odd date", "rule_id": "BR-99"}},
+	})
+	useEnvKey(t, goodKey)
+	file := writeTempFile(t, "inv.json", `{"ok":true}`)
+
+	wantQuiet(t, runCLI(t, "", "validate", "json", file, "--quiet"))
+}

@@ -88,7 +88,9 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 
 	// Parties section
 	if doc.CustomerName != nil || doc.VendorName != nil {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		if err := r.KeyValue(documentPartyPairs(doc)); err != nil {
 			return err
 		}
@@ -96,7 +98,9 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 
 	// Totals section
 	if doc.Subtotal != nil || doc.InvoiceTotal != nil {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		if err := r.KeyValue(documentTotalPairs(doc)); err != nil {
 			return err
 		}
@@ -104,7 +108,9 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 
 	// Payment section
 	if doc.PaymentTerm != nil || len(doc.PaymentDetails) > 0 {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		if err := r.KeyValue(documentPaymentPairs(doc)); err != nil {
 			return err
 		}
@@ -112,7 +118,9 @@ func renderDocumentSections(r *output.Renderer, doc *client.DocumentResponse, fu
 
 	// Line Items section (only with --full)
 	if full && len(doc.Items) > 0 {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		headers, rows := documentItemsTable(doc.Items)
 		if err := r.Table(headers, rows); err != nil {
 			return err
@@ -381,7 +389,9 @@ func runDocumentCreateJSON(cmd *cobra.Command, args []string) error {
 	}
 
 	r.Success("Document created successfully.")
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	return renderDocumentSections(r, doc, false)
 }
 
@@ -418,7 +428,9 @@ func runDocumentCreateUBL(cmd *cobra.Command, args []string) error {
 	}
 
 	r.Success("Document created from UBL successfully.")
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	return renderDocumentSections(r, doc, false)
 }
 
@@ -481,7 +493,9 @@ func renderPDFCreateResult(r *output.Renderer, doc *client.DocumentCreateFromPdf
 			return err
 		}
 	}
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	return renderDocumentSections(r, &doc.DocumentResponse, false)
 }
 
@@ -532,7 +546,9 @@ func runDocumentSend(cmd *cobra.Command, args []string) error {
 	}
 
 	r.Success("Document sent successfully.")
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	return renderDocumentSections(r, doc, false)
 }
 
@@ -582,7 +598,9 @@ func renderValidation(r *output.Renderer, val *client.ValidationResponse) error 
 		return nil
 	}
 
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	headers := []string{"Type", "Message", "Rule"}
 	var rows [][]string
 	for _, issue := range val.Issues {

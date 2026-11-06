@@ -513,3 +513,36 @@ func TestDocumentUBL_UnwritableOutputIsExitCode1(t *testing.T) {
 	wantCode(t, res, 1)
 	wantContains(t, res.Err.Error(), "creating output file")
 }
+
+// --- --quiet section gaps ---
+
+// wantQuiet asserts that a successful --quiet run printed nothing at all, not
+// even the blank lines between output sections.
+func wantQuiet(t *testing.T, res cliResult) {
+	t.Helper()
+	wantOK(t, res)
+	if res.Out != "" {
+		t.Errorf("--quiet printed output:\n%q", res.Out)
+	}
+}
+
+func TestDocumentGet_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	doc := sampleDoc("doc-1")
+	doc["payment_term"] = "30 days"
+	api.json("GET /api/documents/doc-1", http.StatusOK, doc)
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "document", "get", "doc-1", "--full", "--quiet"))
+}
+
+func TestDocumentValidate_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("POST /api/documents/ok/validate", http.StatusOK, map[string]any{
+		"id": "ok", "is_valid": true,
+		"issues": []map[string]any{{"type": "warning", "message": "Odd date", "rule_id": "BR-99"}},
+	})
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "document", "validate", "ok", "--quiet"))
+}

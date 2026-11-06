@@ -306,3 +306,40 @@ func TestHasColor_FlagWinsOverForceColor(t *testing.T) {
 		t.Error("expected --no-color flag to take precedence over FORCE_COLOR")
 	}
 }
+
+func TestGap_WritesBlankLine(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewTestRenderer(&buf, false, false, false, false)
+
+	if err := r.Gap(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := buf.String(); got != "\n" {
+		t.Errorf("Gap() wrote %q, want %q", got, "\n")
+	}
+}
+
+func TestGap_Quiet_NoOutput(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewTestRenderer(&buf, false, true, false, false)
+
+	if err := r.Gap(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no output in quiet mode, got %q", buf.String())
+	}
+}
+
+type failingWriter struct{ err error }
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestGap_ReturnsWriteError(t *testing.T) {
+	wantErr := errors.New("disk full")
+	r := NewTestRenderer(failingWriter{err: wantErr}, false, false, false, false)
+
+	if err := r.Gap(); !errors.Is(err, wantErr) {
+		t.Errorf("Gap() error = %v, want %v", err, wantErr)
+	}
+}

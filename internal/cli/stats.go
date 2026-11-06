@@ -65,11 +65,11 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if len(stats.Actions) == 0 || r.IsQuiet() {
+	if len(stats.Actions) == 0 {
 		return nil
 	}
 
-	if _, err := fmt.Fprintln(r.Writer()); err != nil {
+	if err := r.Gap(); err != nil {
 		return err
 	}
 	return r.Table([]string{"Date", "Sent", "Received"}, statsActionRows(stats.Actions))
