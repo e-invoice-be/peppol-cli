@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1615,7 +1616,7 @@ func TestAttachmentGetCmd_TextOutput(t *testing.T) {
 		{Key: "ID", Value: att.ID},
 		{Key: "Filename", Value: att.FileName},
 		{Key: "Type", Value: att.FileType},
-		{Key: "Size", Value: formatFileSize(att.FileSize)},
+		{Key: "Size", Value: formatFileSize(int64(att.FileSize))},
 	}); err != nil {
 		t.Fatalf("render error: %v", err)
 	}
@@ -1683,14 +1684,21 @@ func TestAttachmentCmd_Help(t *testing.T) {
 
 func TestFormatFileSize(t *testing.T) {
 	tests := []struct {
-		input int
+		input int64
 		want  string
 	}{
+		{0, "0 B"},
 		{500, "500 B"},
+		{1023, "1023 B"},
 		{1024, "1.0 KB"},
 		{2048, "2.0 KB"},
 		{1048576, "1.0 MB"},
 		{1572864, "1.5 MB"},
+		{1 << 30, "1.0 GB"},
+		// Above math.MaxInt32: would overflow a 32-bit int.
+		{math.MaxInt32 + 1, "2.0 GB"},
+		{5 << 30, "5.0 GB"},
+		{1 << 40, "1024.0 GB"},
 	}
 	for _, tt := range tests {
 		got := formatFileSize(tt.input)
