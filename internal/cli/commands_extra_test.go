@@ -628,48 +628,37 @@ func TestValidateJSON_UsageErrorBeforeAuth(t *testing.T) {
 	// With valid input, missing credentials are still an auth error.
 	wantCode(t, runCLI(t, "", "validate", "json", writeTempFile(t, "x.json", "{}")), 2)
 
-	// A positional "-" with no file named "-" reads stdin, so credentials are
-	// checked before the API runs (same as --file -).
+	// A positional "-" is a filename, so a missing one is a usage error
+	// before any credential check (and must not read stdin).
 	t.Chdir(t.TempDir())
 	res = runCLI(t, `{"from":"stdin"}`, "validate", "json", "-")
-	wantCode(t, res, 2)
-	wantContains(t, res.Err.Error(), "peppol auth")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "file not found: -")
 }
 
-// If a file named "-" exists it wins over stdin; otherwise positional "-"
-// reads stdin. --file - always reads stdin.
-func TestValidateJSON_PositionalDash(t *testing.T) {
+// A file literally named "-" is uploaded as that file. --file - is still stdin,
+// even when that file exists in the working directory.
+func TestValidateJSON_PositionalDashIsFilename(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "-"), []byte(`{"from":"file"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
 	api := newFakeAPI(t)
 	validationRoute(api, "POST /api/validate/json")
 	useEnvKey(t, goodKey)
 
-	t.Run("reads_stdin_when_no_dash_file", func(t *testing.T) {
-		t.Chdir(t.TempDir())
-		res := runCLI(t, `{"from":"stdin"}`, "validate", "json", "-")
-		wantOK(t, res)
-		if body := string(api.last("/api/validate/json").Body); body != `{"from":"stdin"}` {
-			t.Errorf("positional - body = %q, want stdin", body)
-		}
-	})
+	res := runCLI(t, `{"from":"stdin"}`, "validate", "json", "-")
+	wantOK(t, res)
+	if body := string(api.last("/api/validate/json").Body); body != `{"from":"file"}` {
+		t.Errorf("positional - body = %q, want the file contents", body)
+	}
 
-	t.Run("reads_dash_file_when_present", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "-"), []byte(`{"from":"file"}`), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		t.Chdir(dir)
-
-		res := runCLI(t, `{"from":"stdin"}`, "validate", "json", "-")
-		wantOK(t, res)
-		if body := string(api.last("/api/validate/json").Body); body != `{"from":"file"}` {
-			t.Errorf("positional - body = %q, want the file contents", body)
-		}
-
-		wantOK(t, runCLI(t, `{"from":"stdin"}`, "validate", "json", "--file", "-"))
-		if body := string(api.last("/api/validate/json").Body); body != `{"from":"stdin"}` {
-			t.Errorf("--file - body = %q, want stdin", body)
-		}
-	})
+	wantOK(t, runCLI(t, `{"from":"stdin"}`, "validate", "json", "--file", "-"))
+	if body := string(api.last("/api/validate/json").Body); body != `{"from":"stdin"}` {
+		t.Errorf("--file - body = %q, want stdin", body)
+	}
 }
 
 func TestValidateUBL(t *testing.T) {

@@ -42,7 +42,7 @@ Checks both format validity and network registration:
 peppol validate json invoice.json --json
 ```
 
-Validates a JSON invoice file against Peppol BIS Billing 3.0 rules without creating a document. Supports stdin with `peppol validate json -` or `peppol validate json --file -`. If a file literally named `-` exists in the current directory, that file wins over stdin; use `--file -` to force stdin:
+Validates a JSON invoice file against Peppol BIS Billing 3.0 rules without creating a document. Supports stdin:
 
 ```bash
 cat invoice.json | peppol validate json --file - --json
