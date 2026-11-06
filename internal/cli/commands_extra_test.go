@@ -186,6 +186,14 @@ func TestAttachmentDelete_NotDeleted(t *testing.T) {
 	if m := decodeJSON(t, stdout); m["is_deleted"] != false || len(m) != 1 {
 		t.Errorf("unexpected JSON: %s", stdout)
 	}
+
+	api.json("DELETE /api/documents/doc-1/attachments/att-1", http.StatusOK, map[string]any{"is_deleted": false})
+	stdout, stderr, err := runCLISplit(t, "", "document", "attachment", "delete", "doc-1", "att-1", "--yes", "-q")
+	wantCode(t, cliResult{Err: err}, 1)
+	wantContains(t, stdout, "attachment was not deleted")
+	if strings.Contains(stderr, "Error: attachment was not deleted") {
+		t.Errorf("duplicate error on stderr with --quiet:\nstdout=%q\nstderr=%q", stdout, stderr)
+	}
 }
 
 // --- document lists ---

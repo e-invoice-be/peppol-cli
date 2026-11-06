@@ -650,7 +650,13 @@ func renderDeleteResult(cmd *cobra.Command, result any, isDeleted bool, noun str
 		}
 	}
 	if !isDeleted {
-		return &ExitError{Err: fmt.Errorf("%s was not deleted", strings.ToLower(noun)), Code: 1}
+		msg := strings.ToLower(noun) + " was not deleted"
+		// execute() suppresses the usual "Error: …" line when --quiet is set; still
+		// emit the outcome on stdout so the user (or logs) see why we exit 1.
+		if !r.IsJSON() && r.IsQuiet() {
+			r.Error(msg)
+		}
+		return &ExitError{Err: errors.New(msg), Code: 1}
 	}
 	if !r.IsJSON() {
 		r.Success(noun + " deleted.")
