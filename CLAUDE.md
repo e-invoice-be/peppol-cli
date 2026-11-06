@@ -71,6 +71,6 @@ Every command follows this pattern (see `me.go` as reference):
 
 ## Authentication
 
-- `resolveKey()` checks `PEPPOL_API_KEY` env var first, then file-based keyring
+- API key resolution is `config.ResolveAPIKeySource` (non-empty `PEPPOL_API_KEY` first, else file keyring). `resolveKey()` and `auth status` both call `resolveKeySource`, so reporting stays aligned with usage.
 - Config stored at `~/.config/peppol-cli/config.yaml`
 - Client auto-injects `Authorization: Bearer <key>` via `authTransport`

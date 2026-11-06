@@ -21,6 +21,8 @@ peppol me --json  # Uses the env var automatically
 
 The CLI checks `PEPPOL_API_KEY` first, then falls back to stored credentials.
 
+`peppol auth status` uses the same resolution as commands like `peppol me`, so the masked key and whether it came from the environment or the keyring cannot drift from what the CLI actually uses.
+
 ### Check status
 
 ```bash
