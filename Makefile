@@ -34,7 +34,7 @@ cover:
 tidy-check:
 	go mod tidy -diff
 
-# Run everything CI runs.
+# Same checks as CI Lint + Vuln + Test (coverage floor). CI also runs a separate Build matrix job.
 check: tidy-check lint vuln cover
 
 generate:

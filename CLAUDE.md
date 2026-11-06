@@ -13,7 +13,7 @@ Go CLI (Cobra) for the [e-invoice.be](https://e-invoice.be) Peppol Access Point 
 
 ## Layout
 
-- `internal/output`: the renderer API commands write through (JSON, key-value, tables, `--quiet`, colour). `version`, `auth`, and `workspace add` / `use` / `remove` print with `fmt`. `completion` writes a shell script.
+- `internal/output`: the renderer API commands write through (JSON, key-value, tables, `--quiet`, colour). `version`, `auth` (including `auth status` / `auth logout`), and `workspace add` / `use` / `remove` print with `fmt`; `workspace list` uses the renderer (`--json` / table). `completion` writes a shell script.
 - `internal/client/generated.go`: API types maintained by hand from `api/openapi.json`. `make generate` only prints a note: oapi-codegen cannot read OpenAPI 3.1.
 - `README.md` and `skills/peppol/` (`SKILL.md` + `references/*.md`): the user docs for every command and flag.
 
