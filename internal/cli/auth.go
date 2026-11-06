@@ -168,7 +168,13 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	return renderAuthStatus(w, cfg, workspace, key, source)
+}
 
+// renderAuthStatus prints the status for a key already resolved by
+// resolveKeySource. An unknown source is an error: a new source must not
+// make status succeed with no output while commands still use that key.
+func renderAuthStatus(w io.Writer, cfg *config.Config, workspace, key string, source config.KeySource) error {
 	switch source {
 	case config.KeySourceNone:
 		fmt.Fprintln(w, "Not authenticated")
@@ -186,6 +192,8 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Fprintf(w, "Authenticated (key: %s)\n", client.MaskKey(key))
 		}
+	default:
+		return &ExitError{Err: fmt.Errorf("unknown API key source %d", source), Code: 1}
 	}
 	return nil
 }

@@ -701,6 +701,13 @@ func TestAuthLogout_CorruptConfigIsNotOverwritten(t *testing.T) {
 
 // auth status must report the key that commands actually use (resolveKey),
 // whatever the mix of env key and stored credentials.
+//
+// The expected source is taken from the key resolveKey returned, not from
+// "PEPPOL_API_KEY is non-empty". A whitespace-only env var is non-empty, so
+// both sides treat it as the env key today. MaskKey of a key that short is
+// "****", which is a prefix of every longer mask, so the comparison uses the
+// full "key: <mask>)" token. If only one side starts ignoring whitespace,
+// the tokens diverge and this test fails.
 func TestAuthStatus_AgreesWithResolveKey(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -711,6 +718,7 @@ func TestAuthStatus_AgreesWithResolveKey(t *testing.T) {
 	}{
 		{name: "env only", env: "env-key-1111"},
 		{name: "env over active workspace", env: "env-key-2222", active: "prod", keys: map[string]string{"prod": "sk_live_prod3333"}},
+		{name: "whitespace env over stored key", env: "    ", active: "prod", keys: map[string]string{"prod": "sk_live_prod3333"}},
 		{name: "env over --workspace", env: "env-key-4444", active: "prod", keys: map[string]string{"prod": "sk_live_prod5555", "test": "sk_test_6666"}, workspace: "test"},
 		{name: "active workspace", active: "prod", keys: map[string]string{"prod": "sk_live_prod7777"}},
 		{name: "--workspace", active: "prod", keys: map[string]string{"prod": "sk_live_prod8888", "test": "sk_test_9999"}, workspace: "test"},
@@ -724,6 +732,7 @@ func TestAuthStatus_AgreesWithResolveKey(t *testing.T) {
 			}
 			t.Setenv("PEPPOL_API_KEY", tt.env)
 
+			// resolveKey reads the global flag; runCLI below parses -w into the same flag.
 			flags.Workspace = tt.workspace
 			key, keyErr := resolveKey()
 
@@ -739,11 +748,38 @@ func TestAuthStatus_AgreesWithResolveKey(t *testing.T) {
 					t.Fatalf("resolveKey: %v (code %d)", keyErr, code)
 				}
 				wantContains(t, res.Out, "Not authenticated")
+				if strings.Contains(res.Out, "Authenticated") {
+					t.Errorf("unauthenticated status looks authenticated: %q", res.Out)
+				}
 				return
 			}
-			wantContains(t, res.Out, client.MaskKey(key))
-			if viaEnv := strings.Contains(res.Out, "via PEPPOL_API_KEY"); viaEnv != (tt.env != "") {
-				t.Errorf("status source mismatch (env set: %v): %q", tt.env != "", res.Out)
+
+			token := func(k string) string {
+				if k == "" {
+					return ""
+				}
+				return "key: " + client.MaskKey(k) + ")"
+			}
+			resolved := token(key)
+			wantContains(t, res.Out, resolved)
+
+			stored := ""
+			if tt.keys != nil {
+				name := tt.workspace
+				if name == "" {
+					name = tt.active
+				}
+				stored = tt.keys[name]
+			}
+			if other := token(stored); other != "" && other != resolved && strings.Contains(res.Out, other) {
+				t.Errorf("status shows stored key %q, resolveKey returned %q\n%s", stored, key, res.Out)
+			}
+			if other := token(tt.env); tt.env != key && other != "" && other != resolved && strings.Contains(res.Out, other) {
+				t.Errorf("status shows env key, resolveKey returned %q\n%s", key, res.Out)
+			}
+			wantViaEnv := tt.env != "" && key == tt.env
+			if strings.Contains(res.Out, "via PEPPOL_API_KEY") != wantViaEnv {
+				t.Errorf("status source mismatch (resolveKey %q, env %q): %q", key, tt.env, res.Out)
 			}
 		})
 	}
@@ -765,4 +801,15 @@ func TestAuthStatus_EnvKeyIgnoresUnreadableCredentials(t *testing.T) {
 	res := runCLI(t, "", "auth", "status")
 	wantOK(t, res)
 	wantContains(t, res.Out, "Authenticated via PEPPOL_API_KEY (key: ****...4321)")
+}
+
+func TestRenderAuthStatus_UnknownSource(t *testing.T) {
+	var b strings.Builder
+	err := renderAuthStatus(&b, &config.Config{}, "", "secret-key-9999", config.KeySource(99))
+	if code := exitCode(err); code != 1 {
+		t.Fatalf("exit code = %d, want 1 (%v)", code, err)
+	}
+	if b.Len() != 0 {
+		t.Errorf("unknown source wrote %q", b.String())
+	}
 }

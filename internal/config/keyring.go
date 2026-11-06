@@ -92,16 +92,10 @@ const (
 	KeySourceKeyring
 )
 
-// ResolveAPIKey returns the API key from the highest-priority source.
-// Priority: PEPPOL_API_KEY env var > keyring backend.
-func ResolveAPIKey(backend KeyringBackend) (string, error) {
-	key, _, err := ResolveAPIKeySource(backend)
-	return key, err
-}
-
-// ResolveAPIKeySource is ResolveAPIKey that also reports which source the key
-// came from. It is the single place that decides key precedence, so callers
-// that report the source (auth status) agree with those that use the key.
+// ResolveAPIKeySource returns the API key and where it came from.
+// Priority: a non-empty PEPPOL_API_KEY, then the keyring backend.
+// It is the only precedence decision, so callers that report the source
+// (auth status) and callers that use the key cannot drift.
 func ResolveAPIKeySource(backend KeyringBackend) (string, KeySource, error) {
 	if envKey := os.Getenv("PEPPOL_API_KEY"); envKey != "" {
 		return envKey, KeySourceEnv, nil
