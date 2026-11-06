@@ -48,7 +48,7 @@ If not authenticated, either:
 - **Always use `--yes` (`-y`)** on destructive commands (`document delete`, `attachment delete`). Without it, the CLI prompts for confirmation on stdin which will hang in non-interactive contexts.
 - **Validate before sending** -- run `peppol document validate <id> --json` and check the `is_valid` field before calling `peppol document send`.
 - **Use `--full` for line items** -- `peppol document get <id> --json` omits line items by default. Add `--full` to include them.
-- **Check exit codes** -- `0` = success, `1` = general error, `2` = auth error, `3` = validation failed, `4` = not found.
+- **Check exit codes** -- `0` = success, `1` = general error, `2` = auth error, `3` = validation failed, `4` = not found. Document and attachment delete also exit `1` when the API returns `is_deleted: false`.
 - **Respect rate limits** -- a rate-limited request fails with `API error 429: ... (retry after 30s)`. Wait for the stated time before the next attempt.
 - **Paginate through results** -- default page size is 20. Use `--page` and `--page-size` to iterate. The JSON response includes `total`, `page`, and `page_size` fields.
 - **Use `-w <workspace>`** to target a specific tenant without switching global state. Good for multi-tenant automation.

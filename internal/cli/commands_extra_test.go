@@ -167,6 +167,34 @@ func TestAttachmentDelete_PromptYesAndJSON(t *testing.T) {
 	wantCode(t, runCLI(t, "", "document", "attachment", "delete", "doc-1", "gone", "--yes"), 4)
 }
 
+// Same behavior as "document delete": is_deleted: false is reported and
+// exits 1, and --json still prints the API's answer on stdout.
+func TestAttachmentDelete_NotDeleted(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("DELETE /api/documents/doc-1/attachments/att-1", http.StatusOK, map[string]any{"is_deleted": false})
+	useEnvKey(t, goodKey)
+
+	res := runCLI(t, "", "document", "attachment", "delete", "doc-1", "att-1", "--yes")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "attachment was not deleted")
+	if strings.Contains(res.Out, "Attachment deleted.") {
+		t.Errorf("reported success for is_deleted=false:\n%s", res.Out)
+	}
+
+	stdout, _, err := runCLISplit(t, "", "document", "attachment", "delete", "doc-1", "att-1", "--yes", "--json")
+	wantCode(t, cliResult{Out: stdout, Err: err}, 1)
+	if m := decodeJSON(t, stdout); m["is_deleted"] != false || len(m) != 1 {
+		t.Errorf("unexpected JSON: %s", stdout)
+	}
+
+	api.json("DELETE /api/documents/doc-1/attachments/att-1", http.StatusOK, map[string]any{"is_deleted": false})
+	stdout, stderr, err := runCLISplit(t, "", "document", "attachment", "delete", "doc-1", "att-1", "--yes", "-q")
+	wantCode(t, cliResult{Err: err}, 1)
+	if stdout != "" || stderr != "" {
+		t.Errorf("--quiet should print nothing:\nstdout=%q\nstderr=%q", stdout, stderr)
+	}
+}
+
 // --- document lists ---
 
 func TestDocumentLists_RouteToEndpointAndShowCounterparty(t *testing.T) {
