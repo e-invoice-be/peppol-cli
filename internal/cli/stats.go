@@ -1,15 +1,15 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
-	"text/tabwriter"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
 	"github.com/e-invoice-be/peppol-cli/internal/client"
+	"github.com/e-invoice-be/peppol-cli/internal/output"
 )
 
 var (
@@ -46,65 +46,63 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return &ExitError{Err: err, Code: 1}
 	}
 
-	if flags.JSON {
-		enc := json.NewEncoder(cmd.OutOrStdout())
-		enc.SetIndent("", "  ")
-		return enc.Encode(stats)
+	r := output.FromContext(cmd.Context())
+
+	if r.IsJSON() {
+		return r.JSON(stats)
 	}
 
-	w := cmd.OutOrStdout()
-	fmt.Fprintf(w, "Period:              %s to %s\n", stats.PeriodStart, stats.PeriodEnd)
-	fmt.Fprintf(w, "Aggregation:         %s\n", stats.Aggregation)
-	fmt.Fprintf(w, "Total Days:          %d\n", stats.TotalDays)
-	fmt.Fprintf(w, "Average Daily Usage: %.2f\n", stats.AverageDailyUsage)
+	pairs := []output.KVPair{
+		{Key: "Period", Value: fmt.Sprintf("%s to %s", stats.PeriodStart, stats.PeriodEnd)},
+		{Key: "Aggregation", Value: string(stats.Aggregation)},
+		{Key: "Total Days", Value: strconv.Itoa(stats.TotalDays)},
+		{Key: "Average Daily Usage", Value: fmt.Sprintf("%.2f", stats.AverageDailyUsage)},
+	}
 	if stats.BudgetEstimationDays != nil {
-		fmt.Fprintf(w, "Budget Estimation:   %.0f days\n", *stats.BudgetEstimationDays)
+		pairs = append(pairs, output.KVPair{Key: "Budget Estimation", Value: fmt.Sprintf("%.0f days", *stats.BudgetEstimationDays)})
+	}
+	if err := r.KeyValue(pairs); err != nil {
+		return err
 	}
 
-	if len(stats.Actions) == 0 {
+	if len(stats.Actions) == 0 || r.IsQuiet() {
 		return nil
 	}
 
-	fmt.Fprintln(w)
-	renderActionsTable(cmd, stats.Actions)
-	return nil
+	fmt.Fprintln(r.Writer())
+	return r.Table([]string{"Date", "Sent", "Received"}, statsActionRows(stats.Actions))
 }
 
-func renderActionsTable(cmd *cobra.Command, actions []client.ActionStats) {
-	// Pivot actions by date: map[date]map[action]count
-	type dateRow struct {
-		date     string
-		sent     int
-		received int
-	}
+// statsActionRows pivots actions into one row per date, sorted by date:
+// date, documents sent, documents received. Other actions only add a row.
+func statsActionRows(actions []client.ActionStats) [][]string {
+	type counts struct{ sent, received int }
 
-	byDate := make(map[string]*dateRow)
+	byDate := make(map[string]*counts)
 	for _, a := range actions {
-		row, ok := byDate[a.StatDate]
+		c, ok := byDate[a.StatDate]
 		if !ok {
-			row = &dateRow{date: a.StatDate}
-			byDate[a.StatDate] = row
+			c = &counts{}
+			byDate[a.StatDate] = c
 		}
 		switch a.Action {
 		case client.ActionDocumentSent:
-			row.sent += a.Count
+			c.sent += a.Count
 		case client.ActionDocumentReceived:
-			row.received += a.Count
+			c.received += a.Count
 		}
 	}
 
-	// Sort dates
 	dates := make([]string, 0, len(byDate))
 	for d := range byDate {
 		dates = append(dates, d)
 	}
 	sort.Strings(dates)
 
-	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "DATE\tSENT\tRECEIVED")
+	rows := make([][]string, 0, len(dates))
 	for _, d := range dates {
-		row := byDate[d]
-		fmt.Fprintf(tw, "%s\t%d\t%d\n", row.date, row.sent, row.received)
+		c := byDate[d]
+		rows = append(rows, []string{d, strconv.Itoa(c.sent), strconv.Itoa(c.received)})
 	}
-	_ = tw.Flush()
+	return rows
 }

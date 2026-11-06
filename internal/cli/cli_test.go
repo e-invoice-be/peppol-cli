@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -273,34 +274,26 @@ func TestStatsCmd_TextOutput(t *testing.T) {
 	}
 }
 
-func TestStatsCmd_RenderTable(t *testing.T) {
+func TestStatsActionRows(t *testing.T) {
 	actions := []client.ActionStats{
+		{Action: client.ActionDocumentSent, StatDate: "2026-01-02", Count: 2},
 		{Action: client.ActionDocumentSent, StatDate: "2026-01-01", Count: 5},
 		{Action: client.ActionDocumentReceived, StatDate: "2026-01-01", Count: 3},
-		{Action: client.ActionDocumentSent, StatDate: "2026-01-02", Count: 2},
+		{Action: client.ActionDocumentSent, StatDate: "2026-01-01", Count: 1},
+		{Action: "SOMETHING_ELSE", StatDate: "2026-01-03", Count: 9},
 	}
 
-	cmd := NewRootCmd()
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-
-	renderActionsTable(cmd, actions)
-	helpOut := buf.String()
-
-	if !strings.Contains(helpOut, "DATE") {
-		t.Error("table missing DATE header")
+	got := statsActionRows(actions)
+	want := [][]string{
+		{"2026-01-01", "6", "3"},
+		{"2026-01-02", "2", "0"},
+		{"2026-01-03", "0", "0"},
 	}
-	if !strings.Contains(helpOut, "SENT") {
-		t.Error("table missing SENT header")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("statsActionRows = %v, want %v", got, want)
 	}
-	if !strings.Contains(helpOut, "RECEIVED") {
-		t.Error("table missing RECEIVED header")
-	}
-	if !strings.Contains(helpOut, "2026-01-01") {
-		t.Error("table missing date 2026-01-01")
-	}
-	if !strings.Contains(helpOut, "2026-01-02") {
-		t.Error("table missing date 2026-01-02")
+	if rows := statsActionRows(nil); len(rows) != 0 {
+		t.Errorf("statsActionRows(nil) = %v, want none", rows)
 	}
 }
 
