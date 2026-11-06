@@ -1,16 +1,11 @@
 package cli
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/config"
 	"github.com/e-invoice-be/peppol-cli/internal/output"
 )
@@ -61,30 +56,13 @@ func runWorkspaceAdd(cmd *cobra.Command, args []string) error {
 		return &ExitError{Err: fmt.Errorf("workspace %q already exists", name), Code: 1}
 	}
 
-	// Read API key from stdin.
-	fmt.Fprint(w, "Paste your API key: ")
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
+	apiKey, err := readAPIKey(cmd)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("reading input: %w", err), Code: 1}
+		return err
 	}
-	apiKey := strings.TrimSpace(line)
-	if apiKey == "" {
-		return &ExitError{Err: errors.New("no API key provided"), Code: 1}
-	}
-
-	// Validate the key.
-	if !flags.Quiet {
-		fmt.Fprint(w, "Validating...")
-	}
-	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
-	tenant, err := c.GetMe()
+	tenant, err := validateAPIKey(cmd, apiKey)
 	if err != nil {
-		fmt.Fprintln(w)
-		return &ExitError{Err: fmt.Errorf("validation failed: %w", err), Code: 2}
-	}
-	if !flags.Quiet {
-		fmt.Fprintln(w, " OK")
+		return err
 	}
 
 	// Store key in workspace-specific keyring.

@@ -65,7 +65,19 @@ func TestAttachmentGet_DetailsAndDownload(t *testing.T) {
 	}
 
 	out := filepath.Join(t.TempDir(), "scan.pdf")
-	wantOK(t, runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out))
+	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out)
+	wantOK(t, res)
+	wantContains(t, res.Out, "Attachment written to "+out+" (9 B)")
+	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out, "--json")
+	wantOK(t, res)
+	if m := decodeJSON(t, res.Out); m["output"] != out || m["size"] != float64(9) {
+		t.Errorf("unexpected JSON: %s", res.Out)
+	}
+	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out, "-q")
+	wantOK(t, res)
+	if res.Out != "" {
+		t.Errorf("--quiet download printed %q", res.Out)
+	}
 	data, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
@@ -143,11 +155,12 @@ func TestAttachmentDelete_PromptYesAndJSON(t *testing.T) {
 	res = runCLI(t, "y\n", "document", "attachment", "delete", "doc-1", "att-1")
 	wantOK(t, res)
 
+	wantContains(t, res.Out, "Attachment deleted.")
+
 	res = runCLI(t, "", "document", "attachment", "delete", "doc-1", "att-1", "--yes", "--json")
 	wantOK(t, res)
-	// Unlike "document delete" (which echoes the API's is_deleted), this
-	// command prints its own {"deleted": true}.
-	if decodeJSON(t, res.Out)["deleted"] != true {
+	// Same shape as "document delete --json": the API's is_deleted.
+	if m := decodeJSON(t, res.Out); m["is_deleted"] != true || len(m) != 1 {
 		t.Errorf("unexpected JSON: %s", res.Out)
 	}
 
@@ -579,8 +592,7 @@ func TestValidateJSON_SourcesAndExitCodes(t *testing.T) {
 		t.Errorf("unexpected JSON: %s", res.Out)
 	}
 
-	withStdin(t, `{"ok":"stdin"}`)
-	wantOK(t, runCLI(t, "", "validate", "json", "--file", "-"))
+	wantOK(t, runCLI(t, `{"ok":"stdin"}`, "validate", "json", "--file", "-"))
 	if body := string(api.last("/api/validate/json").Body); body != `{"ok":"stdin"}` {
 		t.Errorf("stdin body = %q", body)
 	}
@@ -597,12 +609,56 @@ func TestValidateJSON_SourcesAndExitCodes(t *testing.T) {
 	wantContains(t, res.Err.Error(), "provide a file path")
 }
 
-// BUG: validate json resolves credentials before checking its arguments, so
-// a user without credentials gets an auth error (code 2) for a usage mistake.
+// Regression: validate json resolved credentials before checking its
+// arguments, so a user without credentials got an auth error (code 2) for a
+// usage mistake.
 func TestValidateJSON_UsageErrorBeforeAuth(t *testing.T) {
-	skipKnownBug(t, "validate.go runValidateJSON calls resolveKey before validating args/--file")
 	isolateConfig(t)
-	wantCode(t, runCLI(t, "", "validate", "json"), 1)
+	res := runCLI(t, "", "validate", "json")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "provide a file path")
+
+	missing := filepath.Join(t.TempDir(), "missing.json")
+	for _, args := range [][]string{{"validate", "json", missing}, {"validate", "json", "--file", missing}} {
+		res = runCLI(t, "", args...)
+		wantCode(t, res, 1)
+		wantContains(t, res.Err.Error(), "file not found")
+	}
+
+	// With valid input, missing credentials are still an auth error.
+	wantCode(t, runCLI(t, "", "validate", "json", writeTempFile(t, "x.json", "{}")), 2)
+
+	// A positional "-" is a filename, so a missing one is a usage error
+	// before any credential check (and must not read stdin).
+	t.Chdir(t.TempDir())
+	res = runCLI(t, `{"from":"stdin"}`, "validate", "json", "-")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "file not found: -")
+}
+
+// A file literally named "-" is uploaded as that file. --file - is still stdin,
+// even when that file exists in the working directory.
+func TestValidateJSON_PositionalDashIsFilename(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "-"), []byte(`{"from":"file"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	api := newFakeAPI(t)
+	validationRoute(api, "POST /api/validate/json")
+	useEnvKey(t, goodKey)
+
+	res := runCLI(t, `{"from":"stdin"}`, "validate", "json", "-")
+	wantOK(t, res)
+	if body := string(api.last("/api/validate/json").Body); body != `{"from":"file"}` {
+		t.Errorf("positional - body = %q, want the file contents", body)
+	}
+
+	wantOK(t, runCLI(t, `{"from":"stdin"}`, "validate", "json", "--file", "-"))
+	if body := string(api.last("/api/validate/json").Body); body != `{"from":"stdin"}` {
+		t.Errorf("--file - body = %q, want stdin", body)
+	}
 }
 
 func TestValidateUBL(t *testing.T) {
@@ -677,9 +733,13 @@ func TestCompletion_AllShells(t *testing.T) {
 		wantOK(t, res)
 		wantContains(t, res.Out, marker)
 	}
-	// An unsupported shell is not rejected: the parent command prints help
-	// and exits 0.
+	// An unsupported shell is a usage error.
 	res := runCLI(t, "", "completion", "tcsh")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), `unsupported shell "tcsh"`)
+
+	// Without a shell the parent command still prints help.
+	res = runCLI(t, "", "completion")
 	wantOK(t, res)
 	wantContains(t, res.Out, "Usage:")
 }

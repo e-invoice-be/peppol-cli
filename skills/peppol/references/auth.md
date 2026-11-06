@@ -8,9 +8,9 @@
 peppol auth
 ```
 
-Opens `https://app.e-invoice.be/api-settings` in the browser. Paste the API key when prompted. The key is validated against the API before being stored.
+Prints `https://app.e-invoice.be/api-settings` (and opens it in the browser when run in a terminal). Paste the API key when prompted. The key is validated against the API before being stored. Prompts and progress go to stderr.
 
-**Note:** This command reads from stdin, so it cannot be used non-interactively by an AI agent. Use the `PEPPOL_API_KEY` environment variable instead.
+The key can also be piped in, which skips the browser: `printf '%s\n' "$KEY" | peppol auth`. For one-off automation the `PEPPOL_API_KEY` environment variable is usually simpler.
 
 ### Environment variable (preferred for automation)
 
@@ -25,7 +25,11 @@ The CLI checks `PEPPOL_API_KEY` first, then falls back to stored credentials.
 
 ```bash
 peppol auth status
-# Output: Authenticated as <name> (workspace: <ws>, key: sk-...****)
+# Output: Authenticated as <name> (workspace: <ws>, key: ****...abcd)
+
+# With PEPPOL_API_KEY set, the env key is reported instead:
+# Authenticated via PEPPOL_API_KEY (key: ****...abcd)
+# Note: PEPPOL_API_KEY overrides the stored credentials of workspace "<ws>"
 ```
 
 ```bash
@@ -61,7 +65,7 @@ Alias: `peppol ws list`
 peppol workspace add production
 ```
 
-**Note:** This command reads the API key from stdin interactively. For automation, use `PEPPOL_API_KEY` with the `-w` flag instead.
+The API key is read from stdin (prompt on stderr), so it can be piped: `printf '%s\n' "$KEY" | peppol workspace add production`.
 
 ### Switch workspace
 

@@ -11,15 +11,6 @@ import (
 	"testing"
 )
 
-// skipKnownBug skips a test that documents a production bug. Run the suite
-// with PEPPOL_SHOW_BUGS=1 to see these tests fail.
-func skipKnownBug(t *testing.T, msg string) {
-	t.Helper()
-	if os.Getenv("PEPPOL_SHOW_BUGS") == "" {
-		t.Skip("BUG: " + msg)
-	}
-}
-
 // --- document get ---
 
 func TestDocumentGet_TextAndFull(t *testing.T) {

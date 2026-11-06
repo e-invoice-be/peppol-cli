@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -415,24 +416,26 @@ func TestWithHTTPClient_NilTransportGetsAuth(t *testing.T) {
 	}
 }
 
-// BUG: NewClient assigns the auth transport to the caller's *http.Client.
-// Passing http.DefaultClient (Transport == nil) makes every later request
-// through http.DefaultClient carry the API key, including the signed-URL
-// download in cli/document_attachment.go, which uses http.DefaultClient.
+// Regression: NewClient used to assign the auth transport to the caller's
+// *http.Client. Passing http.DefaultClient (Transport == nil) made every later
+// request through http.DefaultClient carry the API key, including the
+// signed-URL download in cli/document_attachment.go.
 func TestWithHTTPClient_DoesNotMutateCallerClient(t *testing.T) {
-	if os.Getenv("PEPPOL_SHOW_BUGS") == "" {
-		t.Skip("BUG: client.go NewClient sets c.httpClient.Transport on the caller-supplied client")
-	}
 	hc := &http.Client{}
 	_ = NewClient("secret", WithHTTPClient(hc))
 	if hc.Transport != nil {
 		t.Error("NewClient modified the caller's http.Client")
 	}
+
+	var buf bytes.Buffer
+	custom := &http.Client{Transport: http.DefaultTransport}
+	_ = NewClient("secret", WithHTTPClient(custom), WithVerbose(&buf))
+	if custom.Transport != http.DefaultTransport {
+		t.Errorf("NewClient replaced the caller's transport with %T", custom.Transport)
+	}
 }
 
-func TestWithHTTPClient_CustomTransportGetsNoAuth(t *testing.T) {
-	// Documents current behavior: a caller transport is used as-is, so no
-	// Authorization header is injected.
+func TestWithHTTPClient_CustomTransportGetsAuth(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -443,8 +446,8 @@ func TestWithHTTPClient_CustomTransportGetsNoAuth(t *testing.T) {
 	if _, err := c.GetMe(); err != nil {
 		t.Fatal(err)
 	}
-	if gotAuth != "" {
-		t.Errorf("Authorization = %q, want none", gotAuth)
+	if gotAuth != "Bearer k1" {
+		t.Errorf("Authorization = %q, want Bearer k1", gotAuth)
 	}
 }
 
@@ -535,32 +538,42 @@ func TestPostMultipartFile_ContentTypeByExtension(t *testing.T) {
 	}
 }
 
-// BUG: postMultipartFile writes the filename into Content-Disposition with
-// %s inside quotes, so a filename containing a double quote produces a
-// malformed header and the server sees a truncated name.
+// Regression: postMultipartFile wrote the filename into Content-Disposition
+// with %s inside quotes, so a filename containing a double quote produced a
+// malformed header and the server saw a truncated name.
 func TestPostMultipartFile_QuotesInFilename(t *testing.T) {
-	if os.Getenv("PEPPOL_SHOW_BUGS") == "" {
-		t.Skip("BUG: client.go postMultipartFile does not escape quotes in the filename (use multipart's escaping)")
-	}
 	var gotName string
+	var gotHeader textproto.MIMEHeader
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, params, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if part, err := multipart.NewReader(r.Body, params["boundary"]).NextPart(); err == nil {
-			gotName = part.FileName()
+			gotName, gotHeader = part.FileName(), part.Header
 		}
 		w.WriteHeader(http.StatusCreated)
 		_, _ = io.WriteString(w, `{}`)
 	}))
 	t.Cleanup(srv.Close)
-	p := filepath.Join(t.TempDir(), `inv"oice.xml`)
-	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewClient("k", WithBaseURL(srv.URL)).CreateDocumentFromUBL(p); err != nil {
-		t.Fatal(err)
-	}
-	if gotName != `inv"oice.xml` {
-		t.Errorf("server saw filename %q", gotName)
+
+	for name, want := range map[string]string{
+		`inv"oice.xml`:              `inv"oice.xml`,
+		`back\slash.xml`:            `back\slash.xml`,
+		"a\r\nX-Evil: 1.xml":        "a%0D%0AX-Evil: 1.xml",
+		"facture-\u00e9t\u00e9.xml": "facture-\u00e9t\u00e9.xml",
+	} {
+		gotName, gotHeader = "", nil
+		p := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := NewClient("k", WithBaseURL(srv.URL)).CreateDocumentFromUBL(p); err != nil {
+			t.Fatal(err)
+		}
+		if gotName != want {
+			t.Errorf("file %q: server saw filename %q, want %q", name, gotName, want)
+		}
+		if gotHeader.Get("X-Evil") != "" {
+			t.Errorf("file %q: filename injected a part header", name)
+		}
 	}
 }
 

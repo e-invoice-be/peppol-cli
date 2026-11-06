@@ -128,6 +128,27 @@ func newValidateJSONCmd() *cobra.Command {
 func runValidateJSON(cmd *cobra.Command, args []string) error {
 	fileFlag, _ := cmd.Flags().GetString("file")
 
+	// Check the input before credentials, so a usage mistake is reported as
+	// such (exit code 1) rather than as an auth error.
+	// Only --file - reads stdin; a positional "-" is an ordinary file path.
+	var filePath string
+	fromStdin := false
+	switch {
+	case fileFlag == "-":
+		fromStdin = true
+	case fileFlag != "":
+		filePath = fileFlag
+	case len(args) == 1:
+		filePath = args[0]
+	default:
+		return &ExitError{Err: errors.New("provide a file path as argument or use --file -"), Code: 1}
+	}
+	if !fromStdin {
+		if _, statErr := os.Stat(filePath); statErr != nil {
+			return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
+		}
+	}
+
 	apiKey, err := resolveKey()
 	if err != nil {
 		return err
@@ -136,24 +157,11 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 
 	var val *client.ValidationResponse
-	switch {
-	case fileFlag == "-":
-		val, err = c.ValidateJSONReader(os.Stdin)
-	case fileFlag != "":
-		if _, statErr := os.Stat(fileFlag); statErr != nil {
-			return &ExitError{Err: fmt.Errorf("file not found: %s", fileFlag), Code: 1}
-		}
-		val, err = c.ValidateJSON(fileFlag)
-	case len(args) == 1:
-		filePath := args[0]
-		if _, statErr := os.Stat(filePath); statErr != nil {
-			return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
-		}
+	if fromStdin {
+		val, err = c.ValidateJSONReader(cmd.InOrStdin())
+	} else {
 		val, err = c.ValidateJSON(filePath)
-	default:
-		return &ExitError{Err: errors.New("provide a file path as argument or use --file -"), Code: 1}
 	}
-
 	if err != nil {
 		return handleValidateError(err)
 	}

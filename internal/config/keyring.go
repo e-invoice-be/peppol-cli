@@ -6,15 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/99designs/keyring"
 )
 
-const (
-	keyringService = "peppol-cli"
-	keyringKey     = "api-key"
-	credsFile      = "credentials"
-)
+const credsFile = "credentials"
 
 // KeyringBackend abstracts credential storage for testability.
 type KeyringBackend interface {
@@ -23,65 +17,7 @@ type KeyringBackend interface {
 	Remove() error
 }
 
-// OSKeyring uses the OS keychain via 99designs/keyring with file fallback.
-type OSKeyring struct {
-	ring keyring.Keyring
-}
-
-// NewOSKeyring creates a keyring backed by OS keychain with file fallback.
-func NewOSKeyring() (*OSKeyring, error) {
-	dir, err := ConfigDir()
-	if err != nil {
-		return nil, err
-	}
-
-	ring, err := keyring.Open(keyring.Config{
-		ServiceName: keyringService,
-		// File-based fallback when no system keychain is available.
-		FileDir:          dir,
-		FilePasswordFunc: func(_ string) (string, error) { return "", nil },
-		// Prefer system keychains, fall back to file.
-		AllowedBackends: []keyring.BackendType{
-			keyring.KeychainBackend,
-			keyring.SecretServiceBackend,
-			keyring.WinCredBackend,
-			keyring.FileBackend,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("opening keyring: %w", err)
-	}
-
-	return &OSKeyring{ring: ring}, nil
-}
-
-func (k *OSKeyring) Get() (string, error) {
-	item, err := k.ring.Get(keyringKey)
-	if err != nil {
-		if errors.Is(err, keyring.ErrKeyNotFound) {
-			return "", nil
-		}
-		return "", fmt.Errorf("reading from keyring: %w", err)
-	}
-	return string(item.Data), nil
-}
-
-func (k *OSKeyring) Set(apiKey string) error {
-	return k.ring.Set(keyring.Item{
-		Key:  keyringKey,
-		Data: []byte(apiKey),
-	})
-}
-
-func (k *OSKeyring) Remove() error {
-	err := k.ring.Remove(keyringKey)
-	if errors.Is(err, keyring.ErrKeyNotFound) {
-		return nil
-	}
-	return err
-}
-
-// FileKeyring stores credentials in a plain file (fallback).
+// FileKeyring stores credentials in a plain file in the config directory.
 type FileKeyring struct {
 	dir      string
 	filename string

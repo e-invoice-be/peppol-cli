@@ -78,7 +78,7 @@ This installs the [`peppol` skill](skills/peppol/SKILL.md), which tells your age
 Authenticate with your e-invoice.be account:
 
 ```bash
-# Interactive authentication (opens browser)
+# Interactive authentication (opens the browser when run in a terminal)
 peppol auth
 
 # Or set an environment variable
