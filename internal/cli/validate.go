@@ -130,15 +130,22 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 
 	// Check the input before credentials, so a usage mistake is reported as
 	// such (exit code 1) rather than as an auth error.
-	filePath := fileFlag
+	// Only --file - reads stdin. A positional "-" is a filename: folding it
+	// into the stdin case made `validate json -` block on the terminal (or
+	// send the wrong bytes) instead of opening a file named "-".
+	var filePath string
+	fromStdin := false
 	switch {
 	case fileFlag == "-":
-	case fileFlag == "" && len(args) == 1:
+		fromStdin = true
+	case fileFlag != "":
+		filePath = fileFlag
+	case len(args) == 1:
 		filePath = args[0]
-	case fileFlag == "":
+	default:
 		return &ExitError{Err: errors.New("provide a file path as argument or use --file -"), Code: 1}
 	}
-	if filePath != "-" {
+	if !fromStdin {
 		if _, statErr := os.Stat(filePath); statErr != nil {
 			return &ExitError{Err: fmt.Errorf("file not found: %s", filePath), Code: 1}
 		}
@@ -152,7 +159,7 @@ func runValidateJSON(cmd *cobra.Command, args []string) error {
 	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
 
 	var val *client.ValidationResponse
-	if filePath == "-" {
+	if fromStdin {
 		val, err = c.ValidateJSONReader(cmd.InOrStdin())
 	} else {
 		val, err = c.ValidateJSON(filePath)
