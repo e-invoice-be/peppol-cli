@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/config"
 )
 
@@ -696,4 +697,72 @@ func TestAuthLogout_CorruptConfigIsNotOverwritten(t *testing.T) {
 	if data, _ := os.ReadFile(path); string(data) != corrupt {
 		t.Errorf("config was overwritten:\n%s", data)
 	}
+}
+
+// auth status must report the key that commands actually use (resolveKey),
+// whatever the mix of env key and stored credentials.
+func TestAuthStatus_AgreesWithResolveKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		env       string
+		active    string
+		keys      map[string]string
+		workspace string // --workspace flag
+	}{
+		{name: "env only", env: "env-key-1111"},
+		{name: "env over active workspace", env: "env-key-2222", active: "prod", keys: map[string]string{"prod": "sk_live_prod3333"}},
+		{name: "env over --workspace", env: "env-key-4444", active: "prod", keys: map[string]string{"prod": "sk_live_prod5555", "test": "sk_test_6666"}, workspace: "test"},
+		{name: "active workspace", active: "prod", keys: map[string]string{"prod": "sk_live_prod7777"}},
+		{name: "--workspace", active: "prod", keys: map[string]string{"prod": "sk_live_prod8888", "test": "sk_test_9999"}, workspace: "test"},
+		{name: "nothing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := isolateConfig(t)
+			if tt.keys != nil {
+				saveWorkspaces(t, dir, tt.active, tt.keys)
+			}
+			t.Setenv("PEPPOL_API_KEY", tt.env)
+
+			flags.Workspace = tt.workspace
+			key, keyErr := resolveKey()
+
+			args := []string{"auth", "status"}
+			if tt.workspace != "" {
+				args = append(args, "-w", tt.workspace)
+			}
+			res := runCLI(t, "", args...)
+			wantOK(t, res)
+
+			if keyErr != nil {
+				if code := exitCode(keyErr); code != 2 {
+					t.Fatalf("resolveKey: %v (code %d)", keyErr, code)
+				}
+				wantContains(t, res.Out, "Not authenticated")
+				return
+			}
+			wantContains(t, res.Out, client.MaskKey(key))
+			if viaEnv := strings.Contains(res.Out, "via PEPPOL_API_KEY"); viaEnv != (tt.env != "") {
+				t.Errorf("status source mismatch (env set: %v): %q", tt.env != "", res.Out)
+			}
+		})
+	}
+}
+
+// With PEPPOL_API_KEY set, unreadable stored credentials are never read:
+// status and resolveKey both use the env key.
+func TestAuthStatus_EnvKeyIgnoresUnreadableCredentials(t *testing.T) {
+	dir := isolateConfig(t)
+	if err := os.MkdirAll(filepath.Join(dir, "credentials"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PEPPOL_API_KEY", "env-key-4321")
+
+	key, err := resolveKey()
+	if err != nil || key != "env-key-4321" {
+		t.Fatalf("resolveKey = (%q, %v), want env key", key, err)
+	}
+	res := runCLI(t, "", "auth", "status")
+	wantOK(t, res)
+	wantContains(t, res.Out, "Authenticated via PEPPOL_API_KEY (key: ****...4321)")
 }

@@ -222,3 +222,41 @@ func TestFileKeyringForWorkspace_AllowsLegacyNamesInsideDir(t *testing.T) {
 		t.Errorf("Get = %q, %v; want k, nil", got, err)
 	}
 }
+
+func TestResolveAPIKeySource(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        string
+		stored     string
+		wantKey    string
+		wantSource KeySource
+	}{
+		{"env wins over keyring", "env-key", "keyring-key", "env-key", KeySourceEnv},
+		{"keyring when env unset", "", "keyring-key", "keyring-key", KeySourceKeyring},
+		{"env with empty keyring", "env-key", "", "env-key", KeySourceEnv},
+		{"none", "", "", "", KeySourceNone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kr := NewFileKeyring(t.TempDir())
+			if tt.stored != "" {
+				if err := kr.Set(tt.stored); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PEPPOL_API_KEY", tt.env)
+
+			key, source, err := ResolveAPIKeySource(kr)
+			if err != nil {
+				t.Fatalf("resolve error: %v", err)
+			}
+			if key != tt.wantKey || source != tt.wantSource {
+				t.Errorf("got (%q, %v), want (%q, %v)", key, source, tt.wantKey, tt.wantSource)
+			}
+			// ResolveAPIKey must apply the same rule.
+			if plain, err := ResolveAPIKey(kr); err != nil || plain != key {
+				t.Errorf("ResolveAPIKey = (%q, %v), want (%q, nil)", plain, err, key)
+			}
+		})
+	}
+}

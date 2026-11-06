@@ -84,17 +84,9 @@ func resolveKey() (string, error) {
 		}
 	}
 
-	// Build the appropriate keyring.
-	var kr config.KeyringBackend
-	if workspace != "" {
-		kr = config.NewFileKeyringForWorkspace(dir, workspace)
-	} else {
-		kr = config.NewFileKeyring(dir)
-	}
-
-	key, err := config.ResolveAPIKey(kr)
+	key, _, err := resolveKeySource(dir, workspace)
 	if err != nil {
-		return "", &ExitError{Err: fmt.Errorf("reading credentials: %w", err), Code: 1}
+		return "", err
 	}
 	if key == "" {
 		return "", &ExitError{
@@ -103,6 +95,24 @@ func resolveKey() (string, error) {
 		}
 	}
 	return key, nil
+}
+
+// resolveKeySource returns the API key for workspace and where it came from.
+// Both resolveKey and auth status go through it, so status always reports
+// the key that commands actually use. An empty key with KeySourceNone means
+// not authenticated; read errors are ExitErrors with code 1.
+func resolveKeySource(dir, workspace string) (string, config.KeySource, error) {
+	var kr config.KeyringBackend
+	if workspace != "" {
+		kr = config.NewFileKeyringForWorkspace(dir, workspace)
+	} else {
+		kr = config.NewFileKeyring(dir)
+	}
+	key, source, err := config.ResolveAPIKeySource(kr)
+	if err != nil {
+		return "", config.KeySourceNone, &ExitError{Err: fmt.Errorf("reading credentials: %w", err), Code: 1}
+	}
+	return key, source, nil
 }
 
 func mustConfigDir() string {

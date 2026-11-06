@@ -80,13 +80,40 @@ func (f *FileKeyring) Remove() error {
 	return nil
 }
 
+// KeySource identifies where a resolved API key came from.
+type KeySource int
+
+const (
+	// KeySourceNone means no API key was found.
+	KeySourceNone KeySource = iota
+	// KeySourceEnv means the key came from the PEPPOL_API_KEY env var.
+	KeySourceEnv
+	// KeySourceKeyring means the key came from the keyring backend.
+	KeySourceKeyring
+)
+
 // ResolveAPIKey returns the API key from the highest-priority source.
 // Priority: PEPPOL_API_KEY env var > keyring backend.
 func ResolveAPIKey(backend KeyringBackend) (string, error) {
+	key, _, err := ResolveAPIKeySource(backend)
+	return key, err
+}
+
+// ResolveAPIKeySource is ResolveAPIKey that also reports which source the key
+// came from. It is the single place that decides key precedence, so callers
+// that report the source (auth status) agree with those that use the key.
+func ResolveAPIKeySource(backend KeyringBackend) (string, KeySource, error) {
 	if envKey := os.Getenv("PEPPOL_API_KEY"); envKey != "" {
-		return envKey, nil
+		return envKey, KeySourceEnv, nil
 	}
-	return backend.Get()
+	key, err := backend.Get()
+	if err != nil {
+		return "", KeySourceNone, err
+	}
+	if key == "" {
+		return "", KeySourceNone, nil
+	}
+	return key, KeySourceKeyring, nil
 }
 
 // MaxWorkspaceNameLen is the longest accepted workspace name. The name ends up

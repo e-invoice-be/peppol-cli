@@ -164,38 +164,28 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// PEPPOL_API_KEY takes precedence over stored credentials (see
-	// config.ResolveAPIKey), so report it as the source rather than the
-	// workspace, which may belong to a different account.
-	if envKey := os.Getenv("PEPPOL_API_KEY"); envKey != "" {
-		fmt.Fprintf(w, "Authenticated via PEPPOL_API_KEY (key: %s)\n", client.MaskKey(envKey))
+	key, source, err := resolveKeySource(dir, workspace)
+	if err != nil {
+		return err
+	}
+
+	switch source {
+	case config.KeySourceNone:
+		fmt.Fprintln(w, "Not authenticated")
+	case config.KeySourceEnv:
+		// The env key overrides stored credentials, so report it as the
+		// source rather than the workspace, which may belong to a different
+		// account.
+		fmt.Fprintf(w, "Authenticated via PEPPOL_API_KEY (key: %s)\n", client.MaskKey(key))
 		if _, ok := cfg.Workspaces[workspace]; ok {
 			fmt.Fprintf(w, "Note: PEPPOL_API_KEY overrides the stored credentials of workspace %q\n", workspace)
 		}
-		return nil
-	}
-
-	// Resolve key for the workspace.
-	var kr config.KeyringBackend
-	if workspace != "" {
-		kr = config.NewFileKeyringForWorkspace(dir, workspace)
-	} else {
-		kr = config.NewFileKeyring(dir)
-	}
-	key, err := kr.Get()
-	if err != nil {
-		return &ExitError{Err: fmt.Errorf("reading credentials: %w", err), Code: 1}
-	}
-
-	if key == "" {
-		fmt.Fprintln(w, "Not authenticated")
-		return nil
-	}
-
-	if ws, ok := cfg.Workspaces[workspace]; ok {
-		fmt.Fprintf(w, "Authenticated as %s (workspace: %s, key: %s)\n", ws.Name, workspace, client.MaskKey(key))
-	} else {
-		fmt.Fprintf(w, "Authenticated (key: %s)\n", client.MaskKey(key))
+	case config.KeySourceKeyring:
+		if ws, ok := cfg.Workspaces[workspace]; ok {
+			fmt.Fprintf(w, "Authenticated as %s (workspace: %s, key: %s)\n", ws.Name, workspace, client.MaskKey(key))
+		} else {
+			fmt.Fprintf(w, "Authenticated (key: %s)\n", client.MaskKey(key))
+		}
 	}
 	return nil
 }
