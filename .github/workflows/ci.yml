@@ -23,7 +23,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v7
         with:
           # Pinned so new linter releases don't break CI unexpectedly.
-          # Use the same version locally (README / CLAUDE.md).
+          # Use the same version locally (`make lint` uses whatever golangci-lint is on PATH).
           version: v2.15.0
 
   vuln:

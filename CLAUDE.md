@@ -1,76 +1,47 @@
 # peppol-cli
 
-Go CLI for the [e-invoice.be](https://e-invoice.be) Peppol Access Point API.
+Go CLI (Cobra) for the [e-invoice.be](https://e-invoice.be) Peppol Access Point API.
 
-## Build & Test
+- **Review**: when reviewing a diff, apply `CODING_STANDARDS.md`.
+- **Spec sync / release**: to sync the CLI with the live OpenAPI spec or cut a release, follow `docs/sync-and-release.md`.
 
-```bash
-go build -o peppol ./cmd/peppol   # Build binary
-go test ./...                       # Run all tests
-go vet ./...                        # Static analysis
-make lint                           # golangci-lint v2.15.0 (config: .golangci.yml)
-make fmt                            # gofumpt + goimports via golangci-lint
-make vuln                           # govulncheck
-make cover                          # tests + coverage, fails below 85% total
-make check                          # everything CI runs (tidy, lint, vuln, cover)
-```
+## Checks
 
-## Code Quality
+- `make check` runs everything CI runs (tidy, lint, govulncheck, race tests, 85% coverage floor); run it before pushing.
+- `make lint` uses whatever `golangci-lint` is on PATH; CI pins the version in `.github/workflows/ci.yml`, so match it locally.
+- `.golangci.yml` is strict. Fix findings; a `//nolint` names one linter and carries a `// reason` (nolintlint enforces this).
 
-- `.golangci.yml` is strict (gosec, errorlint, noctx, gocritic, revive, ...). Fix findings rather than suppressing them; `//nolint` needs a specific linter and a `// reason` (enforced by nolintlint).
-- HTTP requests must carry the command context (`http.NewRequestWithContext(cmd.Context(), ...)`) so Ctrl-C cancels them; compare errors with `errors.Is`/`errors.As`.
-- CI enforces `go mod tidy`, lint, govulncheck, race tests and the coverage floor; run `make check` before pushing.
-- Tests must never touch the real config dir, keyring or network: use `t.TempDir()`, `t.Setenv`, and the fake-API helpers in `internal/cli/harness_extra_test.go`.
+## Layout
 
-## Project Structure
+- `internal/output`: the renderer every command writes through (JSON, key-value, tables, `--quiet`, colour).
+- `internal/client/generated.go`: API types maintained by hand from `api/openapi.json`. `make generate` only prints a note: oapi-codegen cannot read OpenAPI 3.1.
+- `README.md` and `skills/peppol/` (`SKILL.md` + `references/*.md`): the user docs for every command and flag.
 
-```
-cmd/peppol/main.go          # Entry point → cli.Execute()
-internal/
-  cli/                       # Cobra commands (one file per command)
-    root.go                  # Root command, global flags, Execute()
-    auth.go                  # auth, auth status, auth logout
-    me.go                    # me command
-    stats.go                 # stats command
-    mailbox.go               # mailbox list, get, attachment, reprocess
-    completion.go            # completion bash|zsh|fish|powershell
-  client/
-    client.go                # HTTP client with Bearer auth
-    generated.go             # Types from OpenAPI spec (manually maintained)
-  config/
-    config.go                # Config file + keyring credential storage
-  version/
-    version.go               # Build-time version info (ldflags)
-api/
-  openapi.json               # API specification
-```
+## Command pattern
 
-## Command Pattern
+`internal/cli/me.go` is the reference:
 
-Every command follows this pattern (see `me.go` as reference):
+1. `newXxxCmd() *cobra.Command` builds the command and flags; register it in `root.go`.
+2. `runXxx(cmd, args)`: `resolveKey()` → `client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())` → API call → render.
+3. Render with `r := output.FromContext(cmd.Context())`: `if r.IsJSON() { return r.JSON(v) }`, otherwise `r.KeyValue(...)` / `r.Table(...)`.
+4. Return `&ExitError{Err: ..., Code: N}`: 1 general, 2 auth (`client.ErrUnauthorized`, no key), 3 validation failed, 4 not found (`client.ErrNotFound`).
 
-1. `newXxxCmd() *cobra.Command` — creates the command with flags
-2. `runXxx(cmd, args) error` — handler: `resolveKey()` → `client.NewClient()` → API call → render
-3. JSON output: check `flags.JSON`, use `json.NewEncoder(cmd.OutOrStdout())`
-4. Text output: `fmt.Fprintf(cmd.OutOrStdout(), ...)`
-5. Errors: wrap in `&ExitError{Err: ..., Code: N}` (code 1 = general, code 2 = auth)
-6. Register in `root.go`: `cmd.AddCommand(newXxxCmd())`
+Client methods build requests with `http.NewRequestWithContext(c.ctx, ...)` so Ctrl-C cancels them; compare errors with `errors.Is`/`errors.As`.
 
-## Test Pattern
+## Tests
 
-- **Client tests** (`client_test.go`): `httptest.NewServer` → `NewClient("key", WithBaseURL(srv.URL))` → assert
-- **CLI tests** (`cli_test.go`): test client layer via httptest, test cobra wiring via `cmd.SetArgs([]string{"--help"})`, test rendering via `renderXxx` functions
+Tests stay off the real config dir, credentials and network.
 
-## Adding a New Command
+- **CLI**: add tests to the `internal/cli/*_extra_test.go` file for the command group, using the harness in `harness_extra_test.go`: `newFakeAPI(t)` with `api.json("GET /api/...", status, body)`, `useEnvKey(t, goodKey)` or `isolateConfig(t)`, `runCLI(t, stdin, args...)`, then `wantOK` / `wantCode` / `wantContains` / `decodeJSON`. The harness swaps `http.DefaultTransport` and the global `flags`, so these tests run sequentially.
+- **Client**: add the method to `newEndpointCases` in `internal/client/client_errors_extra_test.go` (covers status mapping, cancellation, transport errors), plus success-path tests in `client_test.go` with `httptest.NewServer` and `NewClient("key", WithBaseURL(srv.URL))`.
 
-1. Create `internal/cli/<command>.go` with `newXxxCmd()` and `runXxx()`
-2. Add API method to `internal/client/client.go` (follow `GetMe`/`GetStats` pattern)
-3. Add response types to `internal/client/generated.go` if needed
-4. Register command in `internal/cli/root.go`
-5. Add tests in both `client_test.go` and `cli_test.go`
+## Adding a command
+
+1. Command in `internal/cli/<group>.go`, following the command pattern.
+2. Client method in `internal/client/client.go`; new types in `generated.go`.
+3. Tests as above.
+4. Docs: `README.md` (commands table, examples) and `skills/peppol/` (`SKILL.md` command list + the matching `references/*.md`).
 
 ## Authentication
 
-- `resolveKey()` checks `PEPPOL_API_KEY` env var first, then file-based keyring
-- Config stored at `~/.config/peppol-cli/config.yaml`
-- Client auto-injects `Authorization: Bearer <key>` via `authTransport`
+`resolveKey()` (in `me.go`) picks the workspace (`--workspace` flag, else the config's active one), then `PEPPOL_API_KEY` wins over the stored key. Keys are plain files in the config dir (`$XDG_CONFIG_HOME/peppol-cli`, default `~/.config/peppol-cli`): `credentials` or `credentials-<workspace>`, see `internal/config/keyring.go`.
