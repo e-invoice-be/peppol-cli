@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -252,55 +253,60 @@ func TestStatsCmd_JSONOutput(t *testing.T) {
 }
 
 func TestStatsCmd_TextOutput(t *testing.T) {
-	srv := newStatsTestServer(t)
-	defer srv.Close()
+	// Exercise the full command (renderer + statsActionRows), not only the client.
+	api := newFakeAPI(t)
+	api.json("GET /api/stats", http.StatusOK, map[string]any{
+		"tenant_id": "t-123", "period_start": "2026-01-01", "period_end": "2026-03-27", "aggregation": "DAY",
+		"total_days": 86, "average_daily_usage": 3.5,
+		"actions": []map[string]any{
+			{"action": "DOCUMENT_SENT", "stat_date": "2026-01-01", "count": 5},
+			{"action": "DOCUMENT_RECEIVED", "stat_date": "2026-01-01", "count": 3},
+			{"action": "DOCUMENT_SENT", "stat_date": "2026-01-02", "count": 2},
+		},
+	})
+	useEnvKey(t, goodKey)
 
-	c := client.NewClient("valid-key", client.WithBaseURL(srv.URL))
-	stats, err := c.GetStats("", "", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	res := runCLI(t, "", "stats")
+	wantOK(t, res)
+	wantContains(t, res.Out,
+		"Period               2026-01-01 to 2026-03-27\n",
+		"Aggregation          DAY\n",
+		"Total Days           86\n",
+		"Average Daily Usage  3.50\n",
+	)
+	wantContains(t, strings.ToUpper(res.Out), "DATE", "SENT", "RECEIVED")
+	cell := regexp.MustCompile(`[^\s│|]+`)
+	var rows [][]string
+	for _, line := range strings.Split(res.Out, "\n") {
+		if f := cell.FindAllString(line, -1); len(f) == 3 && strings.HasPrefix(f[0], "2026-") {
+			rows = append(rows, f)
+		}
 	}
-
-	// Verify key fields are present in the response
-	if stats.PeriodStart != "2026-01-01" {
-		t.Errorf("expected period start '2026-01-01', got %q", stats.PeriodStart)
-	}
-	if stats.TotalDays != 86 {
-		t.Errorf("expected total days 86, got %d", stats.TotalDays)
-	}
-	if len(stats.Actions) != 3 {
-		t.Errorf("expected 3 actions, got %d", len(stats.Actions))
+	if want := [][]string{{"2026-01-01", "5", "3"}, {"2026-01-02", "2", "0"}}; !reflect.DeepEqual(rows, want) {
+		t.Errorf("table rows = %v, want %v\noutput:\n%s", rows, want, res.Out)
 	}
 }
 
-func TestStatsCmd_RenderTable(t *testing.T) {
+func TestStatsActionRows(t *testing.T) {
 	actions := []client.ActionStats{
+		{Action: client.ActionDocumentSent, StatDate: "2026-01-02", Count: 2},
 		{Action: client.ActionDocumentSent, StatDate: "2026-01-01", Count: 5},
 		{Action: client.ActionDocumentReceived, StatDate: "2026-01-01", Count: 3},
-		{Action: client.ActionDocumentSent, StatDate: "2026-01-02", Count: 2},
+		{Action: client.ActionDocumentSent, StatDate: "2026-01-01", Count: 1},
+		{Action: "SOMETHING_ELSE", StatDate: "2026-01-03", Count: 9},
 	}
 
-	cmd := NewRootCmd()
-	buf := new(bytes.Buffer)
-	cmd.SetOut(buf)
-
-	renderActionsTable(cmd, actions)
-	helpOut := buf.String()
-
-	if !strings.Contains(helpOut, "DATE") {
-		t.Error("table missing DATE header")
+	got := statsActionRows(actions)
+	want := [][]string{
+		{"2026-01-01", "6", "3"},
+		{"2026-01-02", "2", "0"},
+		{"2026-01-03", "0", "0"},
 	}
-	if !strings.Contains(helpOut, "SENT") {
-		t.Error("table missing SENT header")
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("statsActionRows = %v, want %v", got, want)
 	}
-	if !strings.Contains(helpOut, "RECEIVED") {
-		t.Error("table missing RECEIVED header")
-	}
-	if !strings.Contains(helpOut, "2026-01-01") {
-		t.Error("table missing date 2026-01-01")
-	}
-	if !strings.Contains(helpOut, "2026-01-02") {
-		t.Error("table missing date 2026-01-02")
+	if rows := statsActionRows(nil); len(rows) != 0 {
+		t.Errorf("statsActionRows(nil) = %v, want none", rows)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -712,7 +714,7 @@ func TestValidateUBL(t *testing.T) {
 func TestStats_QueryTextAndJSON(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/stats", http.StatusOK, map[string]any{
-		"period_start": "2026-01-01", "period_end": "2026-01-31", "aggregation": "DAY",
+		"tenant_id": "t-1", "period_start": "2026-01-01", "period_end": "2026-01-31", "aggregation": "DAY",
 		"total_days": 31, "average_daily_usage": 1.5, "budget_estimation_days": 120.0,
 		"actions": []map[string]any{
 			{"action": "DOCUMENT_SENT", "stat_date": "2026-01-02", "count": 3},
@@ -724,31 +726,80 @@ func TestStats_QueryTextAndJSON(t *testing.T) {
 
 	res := runCLI(t, "", "stats", "--from", "2026-01-01", "--to", "2026-01-31", "--aggregation", "DAY")
 	wantOK(t, res)
-	wantContains(t, res.Out, "2026-01-01 to 2026-01-31", "Total Days:          31", "1.50", "120 days", "DATE")
+	// Summary goes through the renderer's KeyValue: keys padded to the
+	// longest key ("Average Daily Usage") plus two spaces.
+	wantContains(t, res.Out,
+		"Period               2026-01-01 to 2026-01-31\n",
+		"Aggregation          DAY\n",
+		"Total Days           31\n",
+		"Average Daily Usage  1.50\n",
+		"Budget Estimation    120 days\n",
+	)
 	q := api.last("/api/stats").Query
 	if q.Get("start_date") != "2026-01-01" || q.Get("end_date") != "2026-01-31" || q.Get("aggregation") != "DAY" {
 		t.Errorf("query = %v", q)
 	}
-	// Rows are sorted by date and SENT/RECEIVED are pivoted per day.
-	i1, i2 := strings.Index(res.Out, "2026-01-01  "), strings.Index(res.Out, "2026-01-02")
-	if i1 < 0 || i2 < 0 || i1 > i2 {
-		t.Errorf("rows not sorted by date:\n%s", res.Out)
+	// The actions table goes through the renderer's Table: rows are sorted
+	// by date and SENT/RECEIVED are pivoted per day.
+	cell := regexp.MustCompile(`[^\s│|]+`)
+	var rows [][]string
+	for _, line := range strings.Split(res.Out, "\n") {
+		if f := cell.FindAllString(line, -1); len(f) == 3 && strings.HasPrefix(f[0], "2026-") {
+			rows = append(rows, f)
+		}
 	}
-	if !strings.Contains(res.Out, "2026-01-02  3     4") {
-		t.Errorf("expected pivoted row for 2026-01-02:\n%s", res.Out)
+	if want := [][]string{{"2026-01-01", "1", "0"}, {"2026-01-02", "3", "4"}}; !reflect.DeepEqual(rows, want) {
+		t.Errorf("table rows = %v, want %v\noutput:\n%s", rows, want, res.Out)
 	}
+	wantContains(t, strings.ToUpper(res.Out), "DATE", "SENT", "RECEIVED")
 
+	// --json passes the API response through field for field.
 	res = runCLI(t, "", "stats", "--json")
 	wantOK(t, res)
-	if decodeJSON(t, res.Out)["total_days"] != float64(31) {
-		t.Errorf("unexpected JSON: %s", res.Out)
+	want := map[string]any{
+		"tenant_id": "t-1", "period_start": "2026-01-01", "period_end": "2026-01-31", "aggregation": "DAY",
+		"total_days": float64(31), "average_daily_usage": 1.5, "budget_estimation_days": 120.0,
+		"actions": []any{
+			map[string]any{"action": "DOCUMENT_SENT", "stat_date": "2026-01-02", "count": float64(3)},
+			map[string]any{"action": "DOCUMENT_RECEIVED", "stat_date": "2026-01-02", "count": float64(4)},
+			map[string]any{"action": "DOCUMENT_SENT", "stat_date": "2026-01-01", "count": float64(1)},
+		},
+	}
+	if got := decodeJSON(t, res.Out); !reflect.DeepEqual(got, want) {
+		t.Errorf("JSON = %v, want %v", got, want)
 	}
 	if q := api.last("/api/stats").Query; len(q) != 0 {
 		t.Errorf("unset flags were sent: %v", q)
 	}
 
+	// --quiet suppresses all text output, including the blank separator line.
+	res = runCLI(t, "", "stats", "--quiet")
+	wantOK(t, res)
+	if res.Out != "" {
+		t.Errorf("--quiet printed output:\n%q", res.Out)
+	}
+
 	t.Setenv("PEPPOL_API_KEY", "bad")
 	wantCode(t, runCLI(t, "", "stats"), 2)
+}
+
+func TestStats_NoActionsOrBudget(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/stats", http.StatusOK, map[string]any{
+		"period_start": "2026-01-01", "period_end": "2026-01-31", "aggregation": "MONTH",
+		"total_days": 31, "average_daily_usage": 0, "actions": []any{},
+	})
+	useEnvKey(t, goodKey)
+
+	res := runCLI(t, "", "stats")
+	wantOK(t, res)
+	wantContains(t, res.Out, "Aggregation          MONTH\n", "Average Daily Usage  0.00\n")
+	if strings.Contains(res.Out, "Budget") || strings.Contains(strings.ToUpper(res.Out), "RECEIVED") {
+		t.Errorf("unexpected budget line or table:\n%s", res.Out)
+	}
+	if strings.HasSuffix(res.Out, "\n\n") {
+		t.Errorf("trailing blank line without a table:\n%q", res.Out)
+	}
 }
 
 // --- misc ---
