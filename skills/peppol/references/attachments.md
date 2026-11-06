@@ -40,4 +40,4 @@ peppol document attachment delete <document-id> <attachment-id> --yes --json
 
 **Always pass `--yes`** to skip the interactive confirmation prompt.
 
-If the API responds with `is_deleted: false`, the command exits with code 1 and prints that the attachment was not deleted (in text mode). With `--json`, stdout is still the API object and stderr includes the usual error envelope.
+If the API responds with `is_deleted: false`, the command exits with code 1 and reports that the attachment was not deleted (in text mode, unless `--quiet` is set). With `--json`, stdout is still the API object and stderr includes the usual error envelope.

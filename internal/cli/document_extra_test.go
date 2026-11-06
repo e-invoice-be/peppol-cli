@@ -416,9 +416,8 @@ func TestDocumentDelete_NotDeleted(t *testing.T) {
 	api.json("DELETE /api/documents/doc-1", http.StatusOK, map[string]any{"is_deleted": false})
 	stdout, stderr, err := runCLISplit(t, "", "document", "delete", "doc-1", "--yes", "-q")
 	wantCode(t, cliResult{Err: err}, 1)
-	wantContains(t, stdout, "document was not deleted")
-	if strings.Contains(stderr, "Error: document was not deleted") {
-		t.Errorf("duplicate error on stderr with --quiet:\nstdout=%q\nstderr=%q", stdout, stderr)
+	if stdout != "" || stderr != "" {
+		t.Errorf("--quiet should print nothing:\nstdout=%q\nstderr=%q", stdout, stderr)
 	}
 }
 
