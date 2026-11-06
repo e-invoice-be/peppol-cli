@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +43,15 @@ PowerShell:
   PS> peppol completion powershell > peppol.ps1
   # and source this file from your PowerShell profile.
 `,
+		// Without this, cobra treats an unknown shell as an argument to the
+		// parent, prints help and exits 0.
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				return &ExitError{Err: fmt.Errorf("unsupported shell %q (supported: bash, zsh, fish, powershell)", args[0]), Code: 1}
+			}
+			return cmd.Help()
+		},
 	}
 
 	cmd.AddCommand(

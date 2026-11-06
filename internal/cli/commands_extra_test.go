@@ -65,7 +65,14 @@ func TestAttachmentGet_DetailsAndDownload(t *testing.T) {
 	}
 
 	out := filepath.Join(t.TempDir(), "scan.pdf")
-	wantOK(t, runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out))
+	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out)
+	wantOK(t, res)
+	wantContains(t, res.Out, "Attachment written to "+out+" (9 B)")
+	res = runCLI(t, "", "document", "attachment", "get", "doc-1", "att-1", "-o", out, "-q")
+	wantOK(t, res)
+	if res.Out != "" {
+		t.Errorf("--quiet download printed %q", res.Out)
+	}
 	data, err := os.ReadFile(out)
 	if err != nil {
 		t.Fatal(err)
@@ -143,11 +150,12 @@ func TestAttachmentDelete_PromptYesAndJSON(t *testing.T) {
 	res = runCLI(t, "y\n", "document", "attachment", "delete", "doc-1", "att-1")
 	wantOK(t, res)
 
+	wantContains(t, res.Out, "Attachment deleted.")
+
 	res = runCLI(t, "", "document", "attachment", "delete", "doc-1", "att-1", "--yes", "--json")
 	wantOK(t, res)
-	// Unlike "document delete" (which echoes the API's is_deleted), this
-	// command prints its own {"deleted": true}.
-	if decodeJSON(t, res.Out)["deleted"] != true {
+	// Same shape as "document delete --json": the API's is_deleted.
+	if m := decodeJSON(t, res.Out); m["is_deleted"] != true || len(m) != 1 {
 		t.Errorf("unexpected JSON: %s", res.Out)
 	}
 
@@ -579,8 +587,7 @@ func TestValidateJSON_SourcesAndExitCodes(t *testing.T) {
 		t.Errorf("unexpected JSON: %s", res.Out)
 	}
 
-	withStdin(t, `{"ok":"stdin"}`)
-	wantOK(t, runCLI(t, "", "validate", "json", "--file", "-"))
+	wantOK(t, runCLI(t, `{"ok":"stdin"}`, "validate", "json", "--file", "-"))
 	if body := string(api.last("/api/validate/json").Body); body != `{"ok":"stdin"}` {
 		t.Errorf("stdin body = %q", body)
 	}
@@ -597,12 +604,24 @@ func TestValidateJSON_SourcesAndExitCodes(t *testing.T) {
 	wantContains(t, res.Err.Error(), "provide a file path")
 }
 
-// BUG: validate json resolves credentials before checking its arguments, so
-// a user without credentials gets an auth error (code 2) for a usage mistake.
+// Regression: validate json resolved credentials before checking its
+// arguments, so a user without credentials got an auth error (code 2) for a
+// usage mistake.
 func TestValidateJSON_UsageErrorBeforeAuth(t *testing.T) {
-	skipKnownBug(t, "validate.go runValidateJSON calls resolveKey before validating args/--file")
 	isolateConfig(t)
-	wantCode(t, runCLI(t, "", "validate", "json"), 1)
+	res := runCLI(t, "", "validate", "json")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "provide a file path")
+
+	missing := filepath.Join(t.TempDir(), "missing.json")
+	for _, args := range [][]string{{"validate", "json", missing}, {"validate", "json", "--file", missing}} {
+		res = runCLI(t, "", args...)
+		wantCode(t, res, 1)
+		wantContains(t, res.Err.Error(), "file not found")
+	}
+
+	// With valid input, missing credentials are still an auth error.
+	wantCode(t, runCLI(t, "", "validate", "json", writeTempFile(t, "x.json", "{}")), 2)
 }
 
 func TestValidateUBL(t *testing.T) {
@@ -677,9 +696,13 @@ func TestCompletion_AllShells(t *testing.T) {
 		wantOK(t, res)
 		wantContains(t, res.Out, marker)
 	}
-	// An unsupported shell is not rejected: the parent command prints help
-	// and exits 0.
+	// An unsupported shell is a usage error.
 	res := runCLI(t, "", "completion", "tcsh")
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), `unsupported shell "tcsh"`)
+
+	// Without a shell the parent command still prints help.
+	res = runCLI(t, "", "completion")
 	wantOK(t, res)
 	wantContains(t, res.Out, "Usage:")
 }

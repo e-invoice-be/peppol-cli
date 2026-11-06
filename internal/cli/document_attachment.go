@@ -102,11 +102,16 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 	}
 
 	outputPath, _ := cmd.Flags().GetString("output")
-	if outputPath != "" {
-		return downloadAttachment(cmd.Context(), att, outputPath)
-	}
-
 	r := output.FromContext(cmd.Context())
+
+	if outputPath != "" {
+		n, err := downloadAttachment(cmd.Context(), att, outputPath)
+		if err != nil {
+			return err
+		}
+		r.Success(fmt.Sprintf("Attachment written to %s (%s)", outputPath, formatFileSize(int(n))))
+		return nil
+	}
 
 	if r.IsJSON() {
 		return r.JSON(att)
@@ -120,40 +125,43 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 	})
 }
 
-func downloadAttachment(ctx context.Context, att *client.DocumentAttachment, outputPath string) error {
+// downloadAttachment saves the attachment's signed URL to outputPath and
+// returns the number of bytes written.
+func downloadAttachment(ctx context.Context, att *client.DocumentAttachment, outputPath string) (int64, error) {
 	if att.FileURL == nil {
-		return &ExitError{Err: errors.New("attachment has no download URL"), Code: 1}
+		return 0, &ExitError{Err: errors.New("attachment has no download URL"), Code: 1}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, *att.FileURL, http.NoBody)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("downloading attachment: %w", err), Code: 1}
+		return 0, &ExitError{Err: fmt.Errorf("downloading attachment: %w", err), Code: 1}
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("downloading attachment: %w", err), Code: 1}
+		return 0, &ExitError{Err: fmt.Errorf("downloading attachment: %w", err), Code: 1}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return &ExitError{Err: fmt.Errorf("downloading attachment: HTTP %d", resp.StatusCode), Code: 1}
+		return 0, &ExitError{Err: fmt.Errorf("downloading attachment: HTTP %d", resp.StatusCode), Code: 1}
 	}
 
 	f, err := os.Create(outputPath) //nolint:gosec // G304: --output path is supplied by the user on purpose
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("creating output file: %w", err), Code: 1}
+		return 0, &ExitError{Err: fmt.Errorf("creating output file: %w", err), Code: 1}
 	}
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
 		_ = f.Close()
-		return &ExitError{Err: fmt.Errorf("writing file: %w", err), Code: 1}
+		return 0, &ExitError{Err: fmt.Errorf("writing file: %w", err), Code: 1}
 	}
 
 	if err := f.Close(); err != nil {
-		return &ExitError{Err: fmt.Errorf("closing output file: %w", err), Code: 1}
+		return 0, &ExitError{Err: fmt.Errorf("closing output file: %w", err), Code: 1}
 	}
 
-	return nil
+	return n, nil
 }
 
 func newAttachmentAddCmd() *cobra.Command {
@@ -219,18 +227,21 @@ func runAttachmentDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
-	_, err = c.DeleteAttachment(args[0], args[1])
+	result, err := c.DeleteAttachment(args[0], args[1])
 	if err != nil {
 		return handleAttachmentError(err)
 	}
 
 	r := output.FromContext(cmd.Context())
 
+	// Same output as "document delete": the API's is_deleted.
 	if r.IsJSON() {
-		return r.JSON(map[string]bool{"deleted": true})
+		return r.JSON(result)
 	}
 
-	r.Success("Attachment deleted.")
+	if result.IsDeleted {
+		r.Success("Attachment deleted.")
+	}
 	return nil
 }
 

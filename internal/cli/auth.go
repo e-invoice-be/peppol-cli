@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/e-invoice-be/peppol-cli/internal/client"
 	"github.com/e-invoice-be/peppol-cli/internal/config"
@@ -46,34 +48,23 @@ func runAuth(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprintf(w, "Open the following URL to get your API key:\n\n  %s\n\n", apiSettingsURL)
+	errOut := cmd.ErrOrStderr()
+	fmt.Fprintf(errOut, "Open the following URL to get your API key:\n\n  %s\n\n", apiSettingsURL)
 
-	// Try to open browser, ignore errors (works fine without it).
-	_ = browser.OpenURL(apiSettingsURL)
+	// Only open a browser for an interactive user; when the key is piped in
+	// (scripts, CI) there is nobody to look at it. Errors are ignored: the
+	// URL is printed above.
+	if isTerminal(cmd.InOrStdin()) {
+		_ = openBrowser(apiSettingsURL)
+	}
 
-	fmt.Fprint(w, "Paste your API key: ")
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
+	apiKey, err := readAPIKey(cmd)
 	if err != nil {
-		return &ExitError{Err: fmt.Errorf("reading input: %w", err), Code: 1}
+		return err
 	}
-	apiKey := strings.TrimSpace(line)
-	if apiKey == "" {
-		return &ExitError{Err: errors.New("no API key provided"), Code: 1}
-	}
-
-	// Validate the key by calling GET /api/me/.
-	if !flags.Quiet {
-		fmt.Fprint(w, "Validating...")
-	}
-	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
-	tenant, err := c.GetMe()
+	tenant, err := validateAPIKey(cmd, apiKey)
 	if err != nil {
-		fmt.Fprintln(w)
-		return &ExitError{Err: fmt.Errorf("validation failed: %w", err), Code: 2}
-	}
-	if !flags.Quiet {
-		fmt.Fprintln(w, " OK")
+		return err
 	}
 
 	// Determine workspace name: use flag override, else derive from tenant name.
@@ -102,6 +93,51 @@ func runAuth(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// openBrowser opens a URL in the user's browser; a variable so tests can stub it.
+var openBrowser = browser.OpenURL
+
+// isTerminal reports whether r is a terminal.
+func isTerminal(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
+// readAPIKey prompts on stderr and reads an API key line from the command's
+// stdin, so the prompt never mixes with the command's output.
+func readAPIKey(cmd *cobra.Command) (string, error) {
+	fmt.Fprint(cmd.ErrOrStderr(), "Paste your API key: ")
+	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if err != nil && (!errors.Is(err, io.EOF) || line == "") {
+		return "", &ExitError{Err: fmt.Errorf("reading input: %w", err), Code: 1}
+	}
+	apiKey := strings.TrimSpace(line)
+	if apiKey == "" {
+		return "", &ExitError{Err: errors.New("no API key provided"), Code: 1}
+	}
+	return apiKey, nil
+}
+
+// validateAPIKey checks apiKey by calling GET /api/me/, reporting progress
+// on stderr, and returns the key's tenant.
+func validateAPIKey(cmd *cobra.Command, apiKey string) (*client.TenantPublic, error) {
+	errOut := cmd.ErrOrStderr()
+	if !flags.Quiet {
+		fmt.Fprint(errOut, "Validating...")
+	}
+	c := client.NewClient(apiKey, clientOpts()...).WithContext(cmd.Context())
+	tenant, err := c.GetMe()
+	if err != nil {
+		if !flags.Quiet {
+			fmt.Fprintln(errOut)
+		}
+		return nil, &ExitError{Err: fmt.Errorf("validation failed: %w", err), Code: 2}
+	}
+	if !flags.Quiet {
+		fmt.Fprintln(errOut, " OK")
+	}
+	return tenant, nil
+}
+
 func newAuthStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "status",
@@ -128,6 +164,17 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// PEPPOL_API_KEY takes precedence over stored credentials (see
+	// config.ResolveAPIKey), so report it as the source rather than the
+	// workspace, which may belong to a different account.
+	if envKey := os.Getenv("PEPPOL_API_KEY"); envKey != "" {
+		fmt.Fprintf(w, "Authenticated via PEPPOL_API_KEY (key: %s)\n", client.MaskKey(envKey))
+		if _, ok := cfg.Workspaces[workspace]; ok {
+			fmt.Fprintf(w, "Note: PEPPOL_API_KEY overrides the stored credentials of workspace %q\n", workspace)
+		}
+		return nil
+	}
+
 	// Resolve key for the workspace.
 	var kr config.KeyringBackend
 	if workspace != "" {
@@ -135,7 +182,7 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 	} else {
 		kr = config.NewFileKeyring(dir)
 	}
-	key, err := config.ResolveAPIKey(kr)
+	key, err := kr.Get()
 	if err != nil {
 		return &ExitError{Err: fmt.Errorf("reading credentials: %w", err), Code: 1}
 	}

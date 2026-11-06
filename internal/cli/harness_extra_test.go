@@ -262,28 +262,6 @@ func decodeJSON(t *testing.T, s string) map[string]any {
 	return m
 }
 
-// withStdin replaces os.Stdin with a pipe holding input. auth and
-// workspace add read os.Stdin directly instead of cmd.InOrStdin().
-func withStdin(t *testing.T, input string) {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	if _, err := w.WriteString(input); err != nil {
-		t.Fatalf("write stdin: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("close stdin writer: %v", err)
-	}
-	orig := os.Stdin
-	os.Stdin = r
-	t.Cleanup(func() {
-		os.Stdin = orig
-		_ = r.Close()
-	})
-}
-
 // writeTempFile writes content to name in a temp dir and returns its path.
 func writeTempFile(t *testing.T, name, content string) string {
 	t.Helper()

@@ -6,18 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/99designs/keyring"
 )
-
-// isolateHome points XDG_CONFIG_HOME and HOME at a temp dir and returns it.
-func isolateHome(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("HOME", dir)
-	return dir
-}
 
 // noHome makes ConfigDir fail: XDG_CONFIG_HOME and HOME are both empty.
 func noHome(t *testing.T) {
@@ -65,108 +54,6 @@ func TestConfigDir_NoHomeIsError(t *testing.T) {
 	if _, err := ConfigDir(); err == nil || !strings.Contains(err.Error(), "home directory") {
 		t.Errorf("err = %v, want a home directory error", err)
 	}
-}
-
-func TestLoadSave_RoundTripUnderConfigDir(t *testing.T) {
-	root := isolateHome(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Workspaces == nil || cfg.ActiveWorkspace != "" {
-		t.Errorf("default config = %+v, want empty with a non-nil map", cfg)
-	}
-
-	if err := cfg.AddWorkspace("acme", Workspace{Name: "ACME NV"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := Save(cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	path := filepath.Join(root, "peppol-cli", "config.yaml")
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("config.yaml mode = %o, want 600", perm)
-	}
-
-	got, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ActiveWorkspace != "acme" || got.Workspaces["acme"].Name != "ACME NV" {
-		t.Errorf("loaded %+v", got)
-	}
-}
-
-func TestLoad_ErrorPaths(t *testing.T) {
-	t.Run("corrupt yaml", func(t *testing.T) {
-		root := isolateHome(t)
-		writeConfig(t, filepath.Join(root, "peppol-cli"), "active_workspace: [unterminated")
-		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "parsing config") {
-			t.Errorf("err = %v", err)
-		}
-	})
-	t.Run("config path is a directory", func(t *testing.T) {
-		root := isolateHome(t)
-		if err := os.MkdirAll(filepath.Join(root, "peppol-cli", "config.yaml"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "reading config") {
-			t.Errorf("err = %v", err)
-		}
-	})
-	t.Run("no home", func(t *testing.T) {
-		noHome(t)
-		if _, err := Load(); err == nil {
-			t.Error("expected an error")
-		}
-	})
-	t.Run("missing workspaces map", func(t *testing.T) {
-		root := isolateHome(t)
-		writeConfig(t, filepath.Join(root, "peppol-cli"), "active_workspace: solo\n")
-		cfg, err := Load()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if cfg.Workspaces == nil {
-			t.Error("Workspaces should be initialized so AddWorkspace does not panic")
-		}
-		if cfg.ActiveWorkspace != "solo" {
-			t.Errorf("ActiveWorkspace = %q", cfg.ActiveWorkspace)
-		}
-	})
-}
-
-func TestSave_ErrorPaths(t *testing.T) {
-	t.Run("no home", func(t *testing.T) {
-		noHome(t)
-		if err := Save(&Config{}); err == nil {
-			t.Error("expected an error")
-		}
-	})
-	t.Run("config dir is a file", func(t *testing.T) {
-		root := isolateHome(t)
-		if err := os.WriteFile(filepath.Join(root, "peppol-cli"), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := Save(&Config{}); err == nil || !strings.Contains(err.Error(), "creating config directory") {
-			t.Errorf("err = %v", err)
-		}
-	})
-	t.Run("config file path is a directory", func(t *testing.T) {
-		root := isolateHome(t)
-		if err := os.MkdirAll(filepath.Join(root, "peppol-cli", "config.yaml"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := Save(&Config{}); err == nil || !strings.Contains(err.Error(), "writing config") {
-			t.Errorf("err = %v", err)
-		}
-	})
 }
 
 func writeConfig(t *testing.T, dir, content string) {
@@ -355,74 +242,5 @@ func TestResolveAPIKey_PropagatesBackendError(t *testing.T) {
 	}
 	if _, err := ResolveAPIKey(NewFileKeyring(dir)); err == nil {
 		t.Error("expected the backend error")
-	}
-}
-
-// --- OSKeyring ---
-//
-// These use keyring.ArrayKeyring (in memory), so the real system keychain is
-// never touched.
-
-func TestOSKeyring_GetSetRemoveWithInMemoryRing(t *testing.T) {
-	k := &OSKeyring{ring: keyring.NewArrayKeyring(nil)}
-
-	got, err := k.Get()
-	if err != nil || got != "" {
-		t.Fatalf("Get on empty ring = %q, %v; want empty, nil", got, err)
-	}
-	if err := k.Remove(); err != nil {
-		t.Errorf("Remove on empty ring = %v, want nil", err)
-	}
-	if err := k.Set("secret"); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := k.Get(); err != nil || got != "secret" {
-		t.Errorf("Get = %q, %v", got, err)
-	}
-	if err := k.Remove(); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := k.Get(); got != "" {
-		t.Errorf("Get after Remove = %q", got)
-	}
-}
-
-type failingRing struct{ keyring.Keyring }
-
-var errRing = errors.New("ring broken")
-
-func (failingRing) Get(string) (keyring.Item, error) { return keyring.Item{}, errRing }
-func (failingRing) Remove(string) error              { return errRing }
-
-func TestOSKeyring_WrapsBackendErrors(t *testing.T) {
-	k := &OSKeyring{ring: failingRing{keyring.NewArrayKeyring(nil)}}
-	if _, err := k.Get(); !errors.Is(err, errRing) || !strings.Contains(err.Error(), "reading from keyring") {
-		t.Errorf("Get err = %v", err)
-	}
-	if err := k.Remove(); !errors.Is(err, errRing) {
-		t.Errorf("Remove err = %v", err)
-	}
-}
-
-func TestNewOSKeyring_NoHomeIsError(t *testing.T) {
-	noHome(t)
-	if _, err := NewOSKeyring(); err == nil {
-		t.Error("expected an error when the config dir cannot be determined")
-	}
-}
-
-func TestNewOSKeyring_FileBackendOnly(t *testing.T) {
-	for _, b := range keyring.AvailableBackends() {
-		if b != keyring.FileBackend {
-			t.Skipf("system keyring backend %q is available; not touching it", b)
-		}
-	}
-	isolateHome(t)
-	k, err := NewOSKeyring()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := k.Get(); err != nil || got != "" {
-		t.Errorf("Get = %q, %v", got, err)
 	}
 }

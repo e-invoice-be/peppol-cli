@@ -38,57 +38,6 @@ func ConfigDir() (string, error) {
 	return filepath.Join(home, ".config", appName), nil
 }
 
-// Load reads the config file. Returns a default config if the file doesn't exist.
-func Load() (*Config, error) {
-	dir, err := ConfigDir()
-	if err != nil {
-		return nil, err
-	}
-
-	path := filepath.Join(dir, configFile)
-	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the CLI's own config file under ConfigDir()
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &Config{
-				Workspaces: make(map[string]Workspace),
-			}, nil
-		}
-		return nil, fmt.Errorf("reading config: %w", err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config: %w", err)
-	}
-	if cfg.Workspaces == nil {
-		cfg.Workspaces = make(map[string]Workspace)
-	}
-	return &cfg, nil
-}
-
-// Save writes the config file, creating the directory if needed.
-func Save(cfg *Config) error {
-	dir, err := ConfigDir()
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
-	}
-
-	path := filepath.Join(dir, configFile)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("writing config: %w", err)
-	}
-	return nil
-}
-
 // LoadFrom reads config from a specific directory (for testing).
 func LoadFrom(dir string) (*Config, error) {
 	path := filepath.Join(dir, configFile)

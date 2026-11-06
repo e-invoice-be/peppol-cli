@@ -123,24 +123,27 @@ func (c *Client) WithContext(ctx context.Context) *Client {
 // NewClient creates a new API client with the given API key.
 func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
-		apiKey:  apiKey,
-		baseURL: DefaultBaseURL,
-		ctx:     context.Background(),
-		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: &authTransport{apiKey: apiKey, base: http.DefaultTransport},
-		},
+		apiKey:     apiKey,
+		baseURL:    DefaultBaseURL,
+		ctx:        context.Background(),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
-	// Ensure the transport has the right key if httpClient wasn't overridden.
-	if c.httpClient.Transport == nil {
-		c.httpClient.Transport = &authTransport{apiKey: c.apiKey, base: http.DefaultTransport}
+	// Never modify the caller's client (it may be http.DefaultClient, which
+	// would then send the API key to every host): wrap the transport of a
+	// shallow copy instead, so auth applies whatever transport it carries.
+	hc := *c.httpClient
+	base := hc.Transport
+	if base == nil {
+		base = http.DefaultTransport
 	}
+	hc.Transport = &authTransport{apiKey: c.apiKey, base: base}
 	if c.verbose != nil {
-		c.httpClient.Transport = &verboseTransport{base: c.httpClient.Transport, w: c.verbose}
+		hc.Transport = &verboseTransport{base: hc.Transport, w: c.verbose}
 	}
+	c.httpClient = &hc
 	return c
 }
 
@@ -759,6 +762,12 @@ func (c *Client) GetDocumentUBL(documentID string) (*DocumentUBL, error) {
 	}
 }
 
+// filenameEscaper makes a filename safe inside a quoted Content-Disposition
+// parameter: backslash and double quote are backslash-escaped as in
+// multipart.Writer.CreateFormFile, and CR/LF are percent-encoded (as browsers
+// do) so a filename can never end the header line and inject another header.
+var filenameEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\r", "%0D", "\n", "%0A")
+
 // postMultipartFile sends a file as multipart/form-data POST request.
 func (c *Client) postMultipartFile(reqURL, filePath string) (*http.Response, error) {
 	f, err := os.Open(filePath) //nolint:gosec // G304: uploading a user-supplied file is the purpose of this call
@@ -775,7 +784,7 @@ func (c *Client) postMultipartFile(reqURL, filePath string) (*http.Response, err
 		contentType = "application/octet-stream"
 	}
 	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filenameEscaper.Replace(filename)))
 	h.Set("Content-Type", contentType)
 	part, err := w.CreatePart(h)
 	if err != nil {

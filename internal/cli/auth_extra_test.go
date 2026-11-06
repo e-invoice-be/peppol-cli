@@ -220,9 +220,8 @@ func TestAuth_StoresKeyUnderSlugifiedTenantWorkspace(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "My Company B.V.", "plan": "pro"})
 	dir := isolateConfig(t)
-	withStdin(t, "  "+goodKey+"  \n")
 
-	res := runCLI(t, "", "auth")
+	res := runCLI(t, "  "+goodKey+"  \n", "auth")
 	wantOK(t, res)
 	wantContains(t, res.Out, "api-settings", "Validating... OK", "Authenticated as My Company B.V. (workspace: my-company-b-v)")
 
@@ -258,9 +257,8 @@ func TestAuth_WorkspaceFlagAndQuiet(t *testing.T) {
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
 	dir := isolateConfig(t)
 	saveWorkspaces(t, dir, "old", map[string]string{"old": "old-key"})
-	withStdin(t, goodKey+"\n")
 
-	res := runCLI(t, "", "auth", "-w", "prod", "-q")
+	res := runCLI(t, goodKey+"\n", "auth", "-w", "prod", "-q")
 	wantOK(t, res)
 	if strings.Contains(res.Out, "Validating") {
 		t.Errorf("--quiet should suppress progress, got %q", res.Out)
@@ -282,9 +280,8 @@ func TestAuth_TenantNameWithoutSlugCharsUsesDefault(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "***", "plan": "pro"})
 	dir := isolateConfig(t)
-	withStdin(t, goodKey+"\n")
 
-	wantOK(t, runCLI(t, "", "auth"))
+	wantOK(t, runCLI(t, goodKey+"\n", "auth"))
 	cfg, err := config.LoadFrom(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -297,8 +294,7 @@ func TestAuth_TenantNameWithoutSlugCharsUsesDefault(t *testing.T) {
 func TestAuth_EmptyKeyIsExitCode1(t *testing.T) {
 	noBrowser(t)
 	isolateConfig(t)
-	withStdin(t, "   \n")
-	res := runCLI(t, "", "auth")
+	res := runCLI(t, "   \n", "auth")
 	wantCode(t, res, 1)
 	wantContains(t, res.Err.Error(), "no API key provided")
 }
@@ -306,7 +302,6 @@ func TestAuth_EmptyKeyIsExitCode1(t *testing.T) {
 func TestAuth_NoInputIsExitCode1(t *testing.T) {
 	noBrowser(t)
 	isolateConfig(t)
-	withStdin(t, "")
 	res := runCLI(t, "", "auth")
 	wantCode(t, res, 1)
 	wantContains(t, res.Err.Error(), "reading input")
@@ -316,9 +311,8 @@ func TestAuth_RejectedKeyIsExitCode2AndStoresNothing(t *testing.T) {
 	noBrowser(t)
 	newFakeAPI(t)
 	dir := isolateConfig(t)
-	withStdin(t, "bad-key\n")
 
-	res := runCLI(t, "", "auth")
+	res := runCLI(t, "bad-key\n", "auth")
 	wantCode(t, res, 2)
 	wantContains(t, res.Err.Error(), "validation failed")
 	if _, err := os.Stat(filepath.Join(dir, "config.yaml")); !os.IsNotExist(err) {
@@ -340,8 +334,7 @@ func TestAuth_CorruptConfigIsNotOverwritten(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(corrupt), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	withStdin(t, goodKey+"\n")
-	res := runCLI(t, "", "auth")
+	res := runCLI(t, goodKey+"\n", "auth")
 	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -370,11 +363,67 @@ func TestAuthStatus_ShowsWorkspaceAndMaskedKey(t *testing.T) {
 	}
 }
 
+// Regression: with PEPPOL_API_KEY set, auth status named the active
+// workspace's tenant although every command authenticates with the env key.
+func TestAuthStatus_EnvKeyOverridesWorkspace(t *testing.T) {
+	dir := isolateConfig(t)
+	saveWorkspaces(t, dir, "prod", map[string]string{"prod": "sk_live_abcdef1234"})
+	t.Setenv("PEPPOL_API_KEY", "env-key-9876")
+
+	res := runCLI(t, "", "auth", "status")
+	wantOK(t, res)
+	wantContains(t, res.Out, "Authenticated via PEPPOL_API_KEY (key: ****...9876)",
+		`overrides the stored credentials of workspace "prod"`)
+	if strings.Contains(res.Out, "Authenticated as") || strings.Contains(res.Out, "1234") {
+		t.Errorf("status attributed the env key to the workspace: %q", res.Out)
+	}
+
+	res = runCLI(t, "", "auth", "status", "-w", "prod")
+	wantOK(t, res)
+	wantContains(t, res.Out, "Authenticated via PEPPOL_API_KEY", `workspace "prod"`)
+}
+
+func TestAuth_PromptsOnStderrAndSkipsBrowserWithoutTerminal(t *testing.T) {
+	opened := 0
+	orig := openBrowser
+	openBrowser = func(string) error { opened++; return nil }
+	t.Cleanup(func() { openBrowser = orig })
+	api := newFakeAPI(t)
+	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
+	isolateConfig(t)
+
+	stdout, stderr, err := runCLISplit(t, goodKey+"\n", "auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantContains(t, stderr, "api-settings", "Paste your API key: ", "Validating... OK")
+	wantContains(t, stdout, "Authenticated as Acme (workspace: acme)")
+	if strings.Contains(stdout, "Paste your API key") || strings.Contains(stdout, "Validating") {
+		t.Errorf("prompt leaked to stdout: %q", stdout)
+	}
+	if opened != 0 {
+		t.Errorf("browser opened %d times for non-terminal stdin", opened)
+	}
+
+	stdout, stderr, err = runCLISplit(t, goodKey+"\n", "workspace", "add", "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantContains(t, stderr, "Paste your API key: ")
+	wantContains(t, stdout, `Workspace "second" added (tenant: Acme)`)
+	if strings.Contains(stdout, "Paste your API key") {
+		t.Errorf("prompt leaked to stdout: %q", stdout)
+	}
+}
+
 func TestAuthStatus_EnvKeyWithoutWorkspace(t *testing.T) {
 	useEnvKey(t, "env-key-9876")
 	res := runCLI(t, "", "auth", "status")
 	wantOK(t, res)
-	wantContains(t, res.Out, "Authenticated (key: ****...9876)")
+	wantContains(t, res.Out, "Authenticated via PEPPOL_API_KEY (key: ****...9876)")
+	if strings.Contains(res.Out, "overrides") {
+		t.Errorf("no workspace to override: %q", res.Out)
+	}
 }
 
 func TestAuthStatus_UnreadableCredentialsIsExitCode1(t *testing.T) {
@@ -437,9 +486,8 @@ func TestWorkspaceAdd_ValidatesAndStoresKey(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Staging Tenant", "plan": "pro"})
 	dir := isolateConfig(t)
-	withStdin(t, goodKey+"\n")
 
-	res := runCLI(t, "", "workspace", "add", "staging")
+	res := runCLI(t, goodKey+"\n", "workspace", "add", "staging")
 	wantOK(t, res)
 	wantContains(t, res.Out, `Workspace "staging" added (tenant: Staging Tenant)`)
 
@@ -465,15 +513,13 @@ func TestWorkspaceAdd_ExistingNameIsExitCode1(t *testing.T) {
 
 func TestWorkspaceAdd_EmptyKeyIsExitCode1(t *testing.T) {
 	isolateConfig(t)
-	withStdin(t, "\n")
-	wantCode(t, runCLI(t, "", "workspace", "add", "x"), 1)
+	wantCode(t, runCLI(t, "\n", "workspace", "add", "x"), 1)
 }
 
 func TestWorkspaceAdd_RejectedKeyIsExitCode2(t *testing.T) {
 	newFakeAPI(t)
 	dir := isolateConfig(t)
-	withStdin(t, "bad\n")
-	wantCode(t, runCLI(t, "", "workspace", "add", "x"), 2)
+	wantCode(t, runCLI(t, "bad\n", "workspace", "add", "x"), 2)
 	if key, _ := config.NewFileKeyringForWorkspace(dir, "x").Get(); key != "" {
 		t.Errorf("rejected key must not be stored, got %q", key)
 	}
@@ -493,9 +539,8 @@ func TestWorkspaceAdd_RejectsPathTraversalName(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
 	dir := isolateConfig(t)
-	withStdin(t, goodKey+"\n")
 	// The key lands in <config>/credentials-x/../../escaped = <config>/../escaped.
-	res := runCLI(t, "", "workspace", "add", "x/../../escaped")
+	res := runCLI(t, goodKey+"\n", "workspace", "add", "x/../../escaped")
 	wantCode(t, res, 1)
 	wantContains(t, res.Err.Error(), "invalid workspace name")
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped")); err == nil {
@@ -599,8 +644,7 @@ func TestAuth_RejectsInvalidWorkspaceFlag(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/me/", http.StatusOK, map[string]any{"name": "Acme", "plan": "pro"})
 	dir := isolateConfig(t)
-	withStdin(t, goodKey+"\n")
-	res := runCLI(t, "", "auth", "-w", "x/../../escaped")
+	res := runCLI(t, goodKey+"\n", "auth", "-w", "x/../../escaped")
 	wantCode(t, res, 1)
 	wantContains(t, res.Err.Error(), "invalid workspace name")
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped")); err == nil {

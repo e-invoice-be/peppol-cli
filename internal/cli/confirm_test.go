@@ -62,7 +62,7 @@ func TestDeletePrompts_GoToStderr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("attachment delete failed: %v", err)
 	}
-	if decodeJSON(t, stdout)["deleted"] != true {
+	if decodeJSON(t, stdout)["is_deleted"] != true {
 		t.Errorf("unexpected JSON: %s", stdout)
 	}
 	wantContains(t, stderr, "Delete attachment att-1 from document doc-1? [y/N]")
