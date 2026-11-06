@@ -70,7 +70,7 @@ func renderAttachmentList(r *output.Renderer, attachments []client.DocumentAttac
 	headers := []string{"ID", "Filename", "Type", "Size"}
 	var rows [][]string
 	for _, a := range attachments {
-		rows = append(rows, []string{a.ID, a.FileName, a.FileType, formatFileSize(a.FileSize)})
+		rows = append(rows, []string{a.ID, a.FileName, a.FileType, formatFileSize(int64(a.FileSize))})
 	}
 	return r.Table(headers, rows)
 }
@@ -112,7 +112,7 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 		if r.IsJSON() {
 			return r.JSON(map[string]any{"output": outputPath, "size": n})
 		}
-		r.Success(fmt.Sprintf("Attachment written to %s (%s)", outputPath, formatFileSize(int(n))))
+		r.Success(fmt.Sprintf("Attachment written to %s (%s)", outputPath, formatFileSize(n)))
 		return nil
 	}
 
@@ -124,7 +124,7 @@ func runAttachmentGet(cmd *cobra.Command, args []string) error {
 		{Key: "ID", Value: att.ID},
 		{Key: "Filename", Value: att.FileName},
 		{Key: "Type", Value: att.FileType},
-		{Key: "Size", Value: formatFileSize(att.FileSize)},
+		{Key: "Size", Value: formatFileSize(int64(att.FileSize))},
 	})
 }
 
@@ -200,7 +200,7 @@ func runAttachmentAdd(cmd *cobra.Command, args []string) error {
 		return r.JSON(att)
 	}
 
-	r.Success(fmt.Sprintf("Uploaded %s (%s)", att.FileName, formatFileSize(att.FileSize)))
+	r.Success(fmt.Sprintf("Uploaded %s (%s)", att.FileName, formatFileSize(int64(att.FileSize))))
 	return nil
 }
 
@@ -249,8 +249,12 @@ func handleAttachmentError(err error) error {
 	return &ExitError{Err: err, Code: 1}
 }
 
-func formatFileSize(bytes int) string {
+// formatFileSize renders a byte count as B, KB, MB or GB (binary units).
+// It takes an int64 so sizes of 2 GiB and up render correctly on 32-bit builds.
+func formatFileSize(bytes int64) string {
 	switch {
+	case bytes >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(1<<30))
 	case bytes >= 1<<20:
 		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(1<<20))
 	case bytes >= 1<<10:
