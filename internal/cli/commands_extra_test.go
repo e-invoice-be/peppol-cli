@@ -588,8 +588,10 @@ func TestValidatePeppolID(t *testing.T) {
 
 func validationRoute(api *fakeAPI, route string) {
 	api.handle(route, func(w http.ResponseWriter, r *http.Request) {
+		// Match the fixture contents, not a bare "bad": the random hex
+		// boundary of a multipart upload can contain those letters.
 		body, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(body), "bad") {
+		if strings.Contains(string(body), `{"bad":true}`) || strings.Contains(string(body), "<bad/>") {
 			writeJSON(w, http.StatusOK, map[string]any{"is_valid": false, "issues": []map[string]any{
 				{"type": "error", "message": "Missing buyer", "rule_id": "BR-07", "location": "/Invoice"},
 				{"type": "warning", "message": "Odd date"},
@@ -829,5 +831,77 @@ func TestVersionCommand(t *testing.T) {
 	wantContains(t, res.Out, "peppol ", "commit:", "built:")
 	if res := runCLI(t, "", "version", "extra"); res.Err == nil {
 		t.Error("version should reject arguments")
+	}
+}
+
+// --- --quiet section gaps ---
+
+func TestMailboxGet_WithAttachments_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/mailbox/m1", http.StatusOK, sampleMail("m1"))
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "mailbox", "get", "m1", "--quiet"))
+}
+
+func TestLookup_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/lookup", http.StatusOK, map[string]any{
+		"status":        "success",
+		"queryMetadata": map[string]any{"identifierScheme": "iso6523", "identifierValue": "0208:0123"},
+		"dnsInfo":       map[string]any{"status": "success", "smpHostname": "smp.example"},
+		"businessCard": map[string]any{"status": "success", "entities": []map[string]any{{
+			"name": "ACME NV", "countryCode": "BE", "identifiers": []map[string]any{{"scheme": "0208", "value": "0123"}},
+		}}},
+	})
+	useEnvKey(t, goodKey)
+
+	wantQuiet(t, runCLI(t, "", "lookup", "0208:0123", "--quiet"))
+}
+
+func TestLookupSearch_QuietSkipsGapAndTable(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/lookup/participants", http.StatusOK, map[string]any{
+		"total_count": 1,
+		"participants": []map[string]any{{
+			"peppol_id": "0208:1", "entities": []map[string]any{{"name": "ACME", "country_code": "BE"}},
+		}},
+	})
+	useEnvKey(t, goodKey)
+
+	res := runCLI(t, "", "lookup", "search", "acme", "--quiet")
+	wantOK(t, res)
+	if want := "Found 1 participants\n"; res.Out != want {
+		t.Errorf("quiet lookup search stdout = %q, want %q", res.Out, want)
+	}
+}
+
+func TestValidateJSON_WithIssues_QuietPrintsNothing(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("POST /api/validate/json", http.StatusOK, map[string]any{
+		"is_valid": true,
+		"issues":   []map[string]any{{"type": "warning", "message": "Odd date", "rule_id": "BR-99"}},
+	})
+	useEnvKey(t, goodKey)
+	file := writeTempFile(t, "inv.json", `{"ok":true}`)
+
+	wantQuiet(t, runCLI(t, "", "validate", "json", file, "--quiet"))
+}
+
+func TestValidatePeppolID_QuietSkipsGapAndTable(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/validate/peppol-id", http.StatusOK, map[string]any{
+		"is_valid": true, "dns_valid": true, "business_card_valid": true,
+		"business_card": map[string]any{"name": "ACME", "country_code": "BE"},
+		"supported_document_types": []string{
+			"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2::Invoice##urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0::2.1",
+		},
+	})
+	useEnvKey(t, goodKey)
+
+	res := runCLI(t, "", "validate", "peppol-id", "0208:good", "--quiet")
+	wantOK(t, res)
+	if want := "Supported Document Types (1):\n"; res.Out != want {
+		t.Errorf("quiet validate peppol-id stdout = %q, want %q", res.Out, want)
 	}
 }

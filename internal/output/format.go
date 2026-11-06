@@ -58,6 +58,16 @@ func (r *Renderer) IsJSON() bool { return r.isJSON }
 // IsQuiet reports whether quiet mode is active.
 func (r *Renderer) IsQuiet() bool { return r.quiet }
 
+// Gap writes the blank line that separates two output sections. Like the
+// sections themselves, it writes nothing in quiet mode.
+func (r *Renderer) Gap() error {
+	if r.quiet {
+		return nil
+	}
+	_, err := fmt.Fprintln(r.w)
+	return err
+}
+
 // KeyValue renders key-value pairs with aligned keys.
 func (r *Renderer) KeyValue(pairs []KVPair) error {
 	if r.quiet {

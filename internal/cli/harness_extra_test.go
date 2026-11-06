@@ -242,6 +242,16 @@ func wantOK(t *testing.T, res cliResult) {
 	}
 }
 
+// wantQuiet asserts that a successful --quiet run printed nothing at all, not
+// even the blank lines between output sections.
+func wantQuiet(t *testing.T, res cliResult) {
+	t.Helper()
+	wantOK(t, res)
+	if res.Out != "" {
+		t.Errorf("--quiet printed output:\n%q", res.Out)
+	}
+}
+
 // wantContains fails the test unless s contains every want.
 func wantContains(t *testing.T, s string, wants ...string) {
 	t.Helper()

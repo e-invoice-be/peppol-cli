@@ -96,18 +96,31 @@ func renderValidationResult(r *output.Renderer, result *client.PeppolIdValidatio
 		return err
 	}
 
-	if len(result.SupportedDocumentTypes) > 0 {
-		fmt.Fprintf(r.Writer(), "\nSupported Document Types (%d):\n", len(result.SupportedDocumentTypes))
-		headers := []string{"TYPE", "PROFILE"}
-		var rows [][]string
-		for _, dt := range result.SupportedDocumentTypes {
-			docType, profile := parseDocumentTypeURN(dt)
-			rows = append(rows, []string{docType, profile})
-		}
-		return r.Table(headers, rows)
+	if len(result.SupportedDocumentTypes) == 0 {
+		return nil
 	}
 
-	return nil
+	writeCaption := func() error {
+		_, err := fmt.Fprintf(r.Writer(), "Supported Document Types (%d):\n", len(result.SupportedDocumentTypes))
+		return err
+	}
+	if r.IsQuiet() {
+		return writeCaption()
+	}
+	if err := r.Gap(); err != nil {
+		return err
+	}
+	if err := writeCaption(); err != nil {
+		return err
+	}
+
+	headers := []string{"TYPE", "PROFILE"}
+	var rows [][]string
+	for _, dt := range result.SupportedDocumentTypes {
+		docType, profile := parseDocumentTypeURN(dt)
+		rows = append(rows, []string{docType, profile})
+	}
+	return r.Table(headers, rows)
 }
 
 // --- File validation commands ---
@@ -238,7 +251,9 @@ func renderFileValidation(r *output.Renderer, val *client.ValidationResponse) er
 		return nil
 	}
 
-	fmt.Fprintln(r.Writer())
+	if err := r.Gap(); err != nil {
+		return err
+	}
 	headers := []string{"SEVERITY", "RULE ID", "MESSAGE", "LOCATION"}
 	var rows [][]string
 	for _, issue := range val.Issues {

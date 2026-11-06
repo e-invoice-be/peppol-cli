@@ -79,7 +79,9 @@ func renderLookupResult(r *output.Renderer, result *client.PeppolIdLookupRespons
 
 	// Business card entities
 	if result.BusinessCard != nil && len(result.BusinessCard.Entities) > 0 {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		var entityPairs []output.KVPair
 		for _, e := range result.BusinessCard.Entities {
 			if e.Name != nil {
@@ -101,7 +103,9 @@ func renderLookupResult(r *output.Renderer, result *client.PeppolIdLookupRespons
 
 	// Errors
 	if len(result.Errors) > 0 {
-		fmt.Fprintln(r.Writer())
+		if err := r.Gap(); err != nil {
+			return err
+		}
 		for _, e := range result.Errors {
 			r.Error(e)
 		}
@@ -151,7 +155,16 @@ func runLookupSearch(cmd *cobra.Command, args []string) error {
 }
 
 func renderSearchResults(r *output.Renderer, result *client.PeppolSearchResult) error {
-	fmt.Fprintf(r.Writer(), "Found %d participants\n\n", result.TotalCount)
+	if _, err := fmt.Fprintf(r.Writer(), "Found %d participants\n", result.TotalCount); err != nil {
+		return err
+	}
+	// Blank line and table are non-essential; the heading stays visible under --quiet.
+	if r.IsQuiet() {
+		return nil
+	}
+	if err := r.Gap(); err != nil {
+		return err
+	}
 
 	if len(result.Participants) == 0 {
 		return nil
