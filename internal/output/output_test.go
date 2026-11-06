@@ -274,9 +274,20 @@ func TestIsQuiet(t *testing.T) {
 }
 
 func TestHasColor_ForceColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "") // isolate from runner env (e.g. NO_COLOR=1)
 	t.Setenv("FORCE_COLOR", "1")
 	if !hasColor(false, false) {
 		t.Error("expected hasColor to be true when FORCE_COLOR is set")
+	}
+}
+
+// A parent process may set NO_COLOR to the empty string; only a non-empty
+// value opts out (https://no-color.org/), so FORCE_COLOR still enables color.
+func TestHasColor_ForceColorWhenNoColorEmpty(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("FORCE_COLOR", "1")
+	if !hasColor(false, false) {
+		t.Error("expected hasColor true when NO_COLOR is empty and FORCE_COLOR is set")
 	}
 }
 
@@ -289,6 +300,7 @@ func TestHasColor_NoColorWinsOverForceColor(t *testing.T) {
 }
 
 func TestHasColor_FlagWinsOverForceColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "") // isolate from runner env
 	t.Setenv("FORCE_COLOR", "1")
 	if hasColor(true, false) {
 		t.Error("expected --no-color flag to take precedence over FORCE_COLOR")

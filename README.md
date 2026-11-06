@@ -87,6 +87,9 @@ export PEPPOL_API_KEY=your-api-key
 # Check authentication status
 peppol auth status
 
+# Same resolution as every other command: a non-empty PEPPOL_API_KEY overrides
+# stored credentials for the active or -w workspace.
+
 # Remove stored credentials
 peppol auth logout
 ```

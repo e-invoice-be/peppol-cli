@@ -56,7 +56,7 @@ func hasColor(noColorFlag, isTTY bool) bool {
 	if noColorFlag {
 		return false
 	}
-	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+	if v, ok := os.LookupEnv("NO_COLOR"); ok && v != "" {
 		return false
 	}
 	if _, ok := os.LookupEnv("FORCE_COLOR"); ok {

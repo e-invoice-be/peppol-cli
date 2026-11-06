@@ -234,13 +234,20 @@ func TestFileKeyringForWorkspace_StaysInsideDir(t *testing.T) {
 	}
 }
 
-func TestResolveAPIKey_PropagatesBackendError(t *testing.T) {
+func TestResolveAPIKeySource_PropagatesBackendError(t *testing.T) {
 	t.Setenv("PEPPOL_API_KEY", "")
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "credentials"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveAPIKey(NewFileKeyring(dir)); err == nil {
+	if _, _, err := ResolveAPIKeySource(NewFileKeyring(dir)); err == nil {
 		t.Error("expected the backend error")
+	}
+
+	// A set env key is returned without reading the broken keyring.
+	t.Setenv("PEPPOL_API_KEY", "env-key")
+	key, source, err := ResolveAPIKeySource(NewFileKeyring(dir))
+	if err != nil || key != "env-key" || source != KeySourceEnv {
+		t.Errorf("env key should skip the broken keyring, got (%q, %v, %v)", key, source, err)
 	}
 }

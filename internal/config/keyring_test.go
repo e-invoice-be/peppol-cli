@@ -56,49 +56,49 @@ func TestFileKeyring_RemoveNonexistent(t *testing.T) {
 	}
 }
 
-func TestResolveAPIKey_EnvVarPriority(t *testing.T) {
+func TestResolveAPIKeySource_EnvVarPriority(t *testing.T) {
 	dir := t.TempDir()
 	kr := NewFileKeyring(dir)
 	kr.Set("keyring-key")
 
 	t.Setenv("PEPPOL_API_KEY", "env-key")
 
-	key, err := ResolveAPIKey(kr)
+	key, source, err := ResolveAPIKeySource(kr)
 	if err != nil {
 		t.Fatalf("resolve error: %v", err)
 	}
-	if key != "env-key" {
-		t.Errorf("expected 'env-key' (env var priority), got %q", key)
+	if key != "env-key" || source != KeySourceEnv {
+		t.Errorf("got (%q, %v), want env-key from the env", key, source)
 	}
 }
 
-func TestResolveAPIKey_FallsBackToKeyring(t *testing.T) {
+func TestResolveAPIKeySource_FallsBackToKeyring(t *testing.T) {
 	dir := t.TempDir()
 	kr := NewFileKeyring(dir)
 	kr.Set("keyring-key")
 
 	os.Unsetenv("PEPPOL_API_KEY")
 
-	key, err := ResolveAPIKey(kr)
+	key, source, err := ResolveAPIKeySource(kr)
 	if err != nil {
 		t.Fatalf("resolve error: %v", err)
 	}
-	if key != "keyring-key" {
-		t.Errorf("expected 'keyring-key', got %q", key)
+	if key != "keyring-key" || source != KeySourceKeyring {
+		t.Errorf("got (%q, %v), want keyring-key from the keyring", key, source)
 	}
 }
 
-func TestResolveAPIKey_EmptyWhenNone(t *testing.T) {
+func TestResolveAPIKeySource_EmptyWhenNone(t *testing.T) {
 	dir := t.TempDir()
 	kr := NewFileKeyring(dir)
 	os.Unsetenv("PEPPOL_API_KEY")
 
-	key, err := ResolveAPIKey(kr)
+	key, source, err := ResolveAPIKeySource(kr)
 	if err != nil {
 		t.Fatalf("resolve error: %v", err)
 	}
-	if key != "" {
-		t.Errorf("expected empty key, got %q", key)
+	if key != "" || source != KeySourceNone {
+		t.Errorf("got (%q, %v), want no key", key, source)
 	}
 }
 
@@ -220,5 +220,40 @@ func TestFileKeyringForWorkspace_AllowsLegacyNamesInsideDir(t *testing.T) {
 	}
 	if got, err := kr.Get(); err != nil || got != "k" {
 		t.Errorf("Get = %q, %v; want k, nil", got, err)
+	}
+}
+
+func TestResolveAPIKeySource(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        string
+		stored     string
+		wantKey    string
+		wantSource KeySource
+	}{
+		{"env wins over keyring", "env-key", "keyring-key", "env-key", KeySourceEnv},
+		{"whitespace env wins over keyring", "    ", "keyring-key", "    ", KeySourceEnv},
+		{"keyring when env unset", "", "keyring-key", "keyring-key", KeySourceKeyring},
+		{"env with empty keyring", "env-key", "", "env-key", KeySourceEnv},
+		{"none", "", "", "", KeySourceNone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kr := NewFileKeyring(t.TempDir())
+			if tt.stored != "" {
+				if err := kr.Set(tt.stored); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PEPPOL_API_KEY", tt.env)
+
+			key, source, err := ResolveAPIKeySource(kr)
+			if err != nil {
+				t.Fatalf("resolve error: %v", err)
+			}
+			if key != tt.wantKey || source != tt.wantSource {
+				t.Errorf("got (%q, %v), want (%q, %v)", key, source, tt.wantKey, tt.wantSource)
+			}
+		})
 	}
 }
