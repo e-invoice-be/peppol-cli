@@ -602,6 +602,35 @@ func validationRoute(api *fakeAPI, route string) {
 	})
 }
 
+// The Peppol Directory rate limits participant searches: the API answers 503
+// with Retry-After, and the error names the wait.
+func TestLookupSearch_DirectoryRateLimited(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("GET /api/lookup/participants", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "12")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"detail": "Peppol Directory is rate limiting lookups"})
+	})
+	useEnvKey(t, goodKey)
+
+	for _, args := range [][]string{{"lookup", "search", "acme"}, {"lookup", "search", "acme", "--json"}} {
+		res := runCLI(t, "", args...)
+		wantCode(t, res, 1)
+		wantContains(t, res.Err.Error(), "API error 503: Peppol Directory is rate limiting lookups (retry after 12s)")
+	}
+}
+
+// A 404 from validate json is about the tenant of the API key, not the file:
+// it is a general error carrying the API's detail.
+func TestValidateJSON_TenantNotFound(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("POST /api/validate/json", http.StatusNotFound, map[string]any{"detail": "Tenant not found"})
+	useEnvKey(t, goodKey)
+
+	res := runCLI(t, "", "validate", "json", writeTempFile(t, "doc.json", `{}`))
+	wantCode(t, res, 1)
+	wantContains(t, res.Err.Error(), "API error 404: Tenant not found")
+}
+
 func TestValidateJSON_SourcesAndExitCodes(t *testing.T) {
 	api := newFakeAPI(t)
 	validationRoute(api, "POST /api/validate/json")

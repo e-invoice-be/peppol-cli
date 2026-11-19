@@ -37,7 +37,8 @@ type APIError struct {
 	StatusCode int
 	Detail     string
 	// RetryAfter is the wait announced by the Retry-After header (sent with
-	// 429 responses). Zero when the header is absent.
+	// 429 responses, and with the 503 of a rate-limited participant search).
+	// Zero when the header is absent.
 	RetryAfter time.Duration
 }
 
