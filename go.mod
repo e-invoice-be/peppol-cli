@@ -1,6 +1,6 @@
 module github.com/e-invoice-be/peppol-cli
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0

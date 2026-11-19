@@ -1749,6 +1749,52 @@ func TestAPIError_IgnoresUnusableRetryAfter(t *testing.T) {
 	}
 }
 
+// --- Documented endpoint errors ---
+
+// The participant search answers 503 with Retry-After when the Peppol
+// Directory rate limits lookups.
+func TestSearchPeppolParticipants_UnavailableCarriesRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "12")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Peppol Directory is rate limiting lookups"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, err := c.SearchPeppolParticipants("acme", "")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %v", err)
+	}
+	if apiErr.StatusCode != http.StatusServiceUnavailable || apiErr.RetryAfter != 12*time.Second {
+		t.Errorf("got status %d, RetryAfter %v; want 503, 12s", apiErr.StatusCode, apiErr.RetryAfter)
+	}
+	if got, want := err.Error(), "API error 503: Peppol Directory is rate limiting lookups (retry after 12s)"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+}
+
+// A 404 from validate json means the tenant of the API key does not exist; it
+// keeps the API's detail and is not the generic ErrNotFound.
+func TestValidateJSON_TenantNotFoundKeepsDetail(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(ErrorResponse{Detail: "Tenant not found"})
+	}))
+	defer srv.Close()
+
+	c := NewClient("key", WithBaseURL(srv.URL))
+	_, err := c.ValidateJSONReader(strings.NewReader(`{}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("err = %v, want an APIError with the API's detail", err)
+	}
+	if got, want := err.Error(), "API error 404: Tenant not found"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+}
+
 // --- Validation errors (422) ---
 
 func TestAPIError_ValidationDetailList(t *testing.T) {

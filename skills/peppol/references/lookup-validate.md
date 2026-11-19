@@ -23,6 +23,8 @@ peppol lookup search "Company" --country BE --json
 
 Returns a list of matching participants with their Peppol IDs, names, countries, and supported document type counts.
 
+When the Peppol Directory rate limits lookups, the search fails with `API error 503: ... (retry after 30s)` and **exit code 1**. Wait for the stated time before the next attempt.
+
 ## Validate a Peppol ID
 
 ```bash
@@ -53,7 +55,7 @@ Response:
 - `issues`: array of `{type, message, rule_id, location}` where type is `error` or `warning`
 - `ubl_document`: the generated UBL XML, returned whenever it could be generated, also when `is_valid` is false (only `is_valid` tells whether it is valid)
 
-**Exit code 3** when validation fails.
+**Exit code 3** when validation fails. `API error 404: ...` (exit code 1) means the tenant of the API key does not exist.
 
 ## Validate a UBL/XML document
 

@@ -49,7 +49,7 @@ If not authenticated, either:
 - **Validate before sending** -- run `peppol document validate <id> --json` and check the `is_valid` field before calling `peppol document send`.
 - **Use `--full` for line items** -- `peppol document get <id> --json` omits line items by default. Add `--full` to include them.
 - **Check exit codes** -- `0` = success, `1` = general error, `2` = auth error, `3` = validation failed, `4` = not found. Document and attachment delete also exit `1` when the API returns `is_deleted: false`.
-- **Respect rate limits** -- a rate-limited request fails with `API error 429: ... (retry after 30s)`. Wait for the stated time before the next attempt.
+- **Respect rate limits** -- a rate-limited request fails with `API error 429: ... (retry after 30s)`. Wait for the stated time before the next attempt. `peppol lookup search` reports a rate-limited Peppol Directory the same way, as `API error 503: ... (retry after 30s)`.
 - **Paginate through results** -- default page size is 20. Use `--page` and `--page-size` to iterate. The JSON response includes `total`, `page`, and `page_size` fields.
 - **Use `-w <workspace>`** to target a specific tenant without switching global state. Good for multi-tenant automation.
 - **Prefer `document create json`** -- JSON creation is the most reliable format. PDF creation uses OCR and may need manual review (check the `success` field). UBL is for pre-built XML.
