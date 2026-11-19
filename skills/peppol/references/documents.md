@@ -56,6 +56,9 @@ peppol document create json invoice.json --construct-pdf --json
 - VAT in another currency: set `tax_currency` (BT-6, must differ from `currency`) together with `total_tax_in_tax_currency` (BT-111); it does not add to `invoice_total`
 - Rounding: `rounding_amount` (BT-114, between -5.00 and 5.00) is added to `invoice_total` to get the amount to pay, for example to round to whole kronor
 - Payment details: `swift` is the BIC of the payee's bank, or `SE:BANKGIRO` / `SE:PLUSGIRO` with the bankgiro/plusgiro number in `bank_account_number` and `iban` left empty
+- Delivery: `shipping_address_recipient` (BT-70) is the name of the deliver-to party
+- VAT exemption: `vatex` (BT-121) is the exemption reason code from the VATEX code list; `vatex_note` (BT-120) is the exemption reason as text. An exemption reason (`vatex` or `vatex_note`) is required for `tax_code` `E`, `AE`, `K`, `G` and `O`, and not allowed for `S`, `Z`, `L` and `M`. The VATEX list includes the French `VATEX-FR-*` codes (among them `VATEX-FR-AE`, `VATEX-FR-298SEXDECIESA` and the `VATEX-FR-CGI…` codes), `VATEX-EU-135-1` and `VATEX-EU-153`
+- Units: a line item's `unit` is any unit of measure code from the UNECE Recommendation 20/21 list (for example `C62`, `HUR`, `KGM`, `XO9`)
 - Line items: `name` (BT-153) is the item name; `description` (BT-154) is the longer item description. When you omit `name`, the API uses `description` as the item name. `price_base_quantity` (BT-149, default `1`) is the number of units that `unit_price` applies to, for example `100` for a price per 100 units
 
 In text output, `document get` shows the preceding invoice, buyer reference, purchase and sales order, contact phones, VAT in the tax currency, and rounding amount when they are set. With `--full`, the line-item table adds a `Name` column when an item has a name and a `Base Qty` column when an item has a price base quantity other than 1.
